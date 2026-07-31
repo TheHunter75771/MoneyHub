@@ -26,7 +26,9 @@ def utcnow() -> datetime:
 
 
 ACCOUNT_KINDS = ("checking", "savings", "envelope", "credit", "investment")
-CATEGORY_GROUPS = ("need", "want", "debt", "savings", "income")
+# 'transfer' marks movement between owned accounts — excluded from all
+# income/spending math (the running fix for the card-autopay double-count).
+CATEGORY_GROUPS = ("need", "want", "debt", "savings", "income", "transfer")
 CATEGORY_SOURCE_MANUAL = "manual"  # rules never overwrite manual categorization
 
 
@@ -143,6 +145,30 @@ class Debt(Base):
     apr: Mapped[float | None] = mapped_column()
     note: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(10), default="open")  # open | paid_off
+
+
+class Rule(Base):
+    """A categorization rule. First match wins, ordered by (priority, id).
+
+    Empty condition fields mean "any". Rules only ever touch transactions
+    whose category_source is NULL or 'rule:<id>' — manual categorization is
+    sticky and can never be overwritten by the engine.
+    """
+
+    __tablename__ = "rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    priority: Mapped[int] = mapped_column(default=100, index=True)
+    name: Mapped[str] = mapped_column(String(100), default="")
+    match_text: Mapped[str] = mapped_column(String(200), default="")  # ci substring
+    bank_category: Mapped[str] = mapped_column(String(100), default="")  # exact
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
+    direction: Mapped[str] = mapped_column(String(3), default="")  # '' | 'in' | 'out'
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    category: Mapped[Category] = relationship()
 
 
 class BalanceSnapshot(Base):
