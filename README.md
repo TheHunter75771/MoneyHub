@@ -50,8 +50,9 @@ bank exports (CSV/OFX)      manual entry
 
 - [x] **Phase 0** — repo scaffold, schema + initial migration, seed from the
       legacy money-hub data, tests, CI
-- [ ] **Phase 1** — CSV/OFX importer CLI with layered dedup; balance-drift
-      reconcile report
+- [x] **Phase 1** — CSV importer CLI (Service CU format) with layered dedup;
+      balance-drift reconcile report. (OFX parser lands when a sample file
+      from a second institution is available.)
 - [ ] **Phase 2** — category rules engine, uncategorized inbox, budget report,
       manual quick-add
 - [ ] **Phase 3** — FastAPI + web UI (owner-designed) over Tailscale
