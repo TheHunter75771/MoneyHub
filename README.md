@@ -55,8 +55,8 @@ bank exports (CSV/OFX)      manual entry
       statement PDFs (multi-account, self-verifying via the running-balance
       chain, cross-source dedup against CSV imports). OFX lands when a sample
       from a second institution is available.
-- [ ] **Phase 2** — category rules engine, uncategorized inbox, budget report,
-      manual quick-add
+- [x] **Phase 2** — category rules engine (first-match-wins, manual-sticky),
+      uncategorized inbox, monthly budget report, manual quick-add
 - [ ] **Phase 3** — FastAPI + web UI (owner-designed) over Tailscale
 - [ ] **Phase 4** — transfer linking (card autopay model), payday flow
 - [ ] **Phase 5** — Notion one-way projection + inbox; optional live bank
