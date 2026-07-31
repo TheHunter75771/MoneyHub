@@ -112,6 +112,14 @@ systemctl --user daemon-reload
 systemctl --user enable --now moneyhub-sync.timer
 ```
 
+### Phone notifications (optional)
+
+Uses [ntfy](https://ntfy.sh): install the ntfy app, subscribe to the topic in
+your `.env` (`NTFY_TOPIC` — long and random; the topic name is the secret).
+`moneyhub notify` pushes a digest (balances, unpaid-bill risk, payday nudge,
+inbox count); the sync service pushes it automatically after every run and
+fires a high-priority alert if the sync itself fails.
+
 ### Web UI
 
 ```bash

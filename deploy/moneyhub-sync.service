@@ -1,7 +1,8 @@
 [Unit]
-Description=Money Hub: SimpleFIN sync + categorize
+Description=Money Hub: SimpleFIN sync + categorize + phone digest
 # Requires the drive holding the repo to be mounted.
 ConditionPathExists=/run/media/hunter/AI/Claude/Finances/money-hub
+OnFailure=moneyhub-sync-fail.service
 
 [Service]
 Type=oneshot
@@ -9,3 +10,6 @@ WorkingDirectory=/run/media/hunter/AI/Claude/Finances/money-hub
 # .venv-host is built with the host's own python (see README); the dev
 # .venv may belong to a different toolchain.
 ExecStart=/run/media/hunter/AI/Claude/Finances/money-hub/.venv-host/bin/moneyhub sync
+# Digest push after every successful sync; '-' so a push hiccup never
+# marks the sync itself failed.
+ExecStartPost=-/run/media/hunter/AI/Claude/Finances/money-hub/.venv-host/bin/moneyhub notify

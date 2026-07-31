@@ -304,6 +304,23 @@ def cmd_sync(args: argparse.Namespace) -> None:
             print(f"  rules: {stats.categorized} categorized, inbox grew by uncategorized rest")
 
 
+def cmd_notify(args: argparse.Namespace) -> None:
+    from .notify import NotifyError, send, send_digest
+
+    try:
+        if args.message:
+            send(args.title or "Money Hub", args.message, args.priority)
+            print("sent")
+            return
+        with _session(args.db) as session:
+            digest = send_digest(session)
+        print(f"sent: {digest['title']} ({digest['priority']})")
+        for line in digest["body"].splitlines():
+            print(f"  {line}")
+    except NotifyError as exc:
+        sys.exit(f"notify failed: {exc}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="moneyhub", description=__doc__)
     parser.add_argument("--db", default=DEFAULT_DB, help=f"database path (default {DEFAULT_DB})")
@@ -369,6 +386,14 @@ def main(argv: list[str] | None = None) -> None:
         help="assign a SimpleFIN account id to a Money Hub account (repeatable)",
     )
     p_sync.set_defaults(func=cmd_sync)
+
+    p_notify = sub.add_parser("notify", help="push the daily digest (or a custom message) via ntfy")
+    p_notify.add_argument("--message", help="send this text instead of the digest")
+    p_notify.add_argument("--title", help="title for --message")
+    p_notify.add_argument(
+        "--priority", default="default", choices=["min", "low", "default", "high", "urgent"]
+    )
+    p_notify.set_defaults(func=cmd_notify)
 
     p_set = sub.add_parser("set-category", help="manually categorize one transaction (sticky)")
     p_set.add_argument("txn_id", type=int)

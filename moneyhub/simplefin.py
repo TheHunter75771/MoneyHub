@@ -33,7 +33,7 @@ class SimpleFinError(RuntimeError):
     pass
 
 
-ENV_PREFIXES = ("SIMPLEFIN_", "NOTION_")
+ENV_PREFIXES = ("SIMPLEFIN_", "NOTION_", "NTFY_")
 
 
 def load_env(path: str | Path = ".env") -> dict[str, str]:
