@@ -303,3 +303,68 @@ dialog::backdrop { background: rgba(15, 17, 25, 0.7); }
 }
 .dlg-err { color: var(--accent-bright); font-size: 12px; min-height: 14px; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* --- bills -------------------------------------------------------------- */
+.bill-header, .bill-row {
+  display: grid; grid-template-columns: 28px 1.5fr 0.7fr 0.6fr 1.1fr 0.8fr 1fr; gap: 12px;
+  align-items: center;
+}
+.bill-header { padding: 0 12px 7px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.bill-row { background: var(--surface); border-radius: 8px; padding: 8px 12px; margin-bottom: 4px; }
+.bill-row.paid .bill-name { color: var(--disabled); text-decoration: line-through; }
+.bill-name { font-size: 14px; font-weight: 500; }
+.bill-due, .bill-check { font-size: 12px; color: var(--muted); }
+.bill-cat { font-size: 11px; color: var(--faint); }
+.bill-amt { text-align: right; font-size: 14px; }
+.checkbox {
+  appearance: none; width: 16px; height: 16px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--ground); cursor: pointer; margin: 0;
+}
+.checkbox:checked { border-color: var(--accent); background: rgba(145,132,217,0.35); }
+.checkbox:hover { border-color: var(--accent); }
+
+/* --- debts -------------------------------------------------------------- */
+.debt-header, .debt-row {
+  display: grid; grid-template-columns: 1.4fr 1.6fr 0.8fr 1fr 1fr; gap: 12px; align-items: center;
+}
+.debt-header { padding: 0 12px 7px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.debt-row { background: var(--surface); border-radius: 8px; padding: 8px 12px; margin-bottom: 4px; }
+.debt-row.closed { opacity: 0.55; }
+.debt-name { font-size: 14px; font-weight: 500; }
+.debt-note { font-size: 12px; color: var(--muted); }
+.pill-ok {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;
+}
+
+/* --- data & rules --------------------------------------------------------- */
+.data-section { display: flex; flex-direction: column; gap: 8px; }
+.data-head { display: flex; justify-content: space-between; align-items: baseline; }
+.mini-table { font-size: 12px; }
+.mini-row {
+  display: grid; gap: 12px; align-items: center; background: var(--surface);
+  border-radius: 8px; padding: 7px 12px; margin-bottom: 4px;
+}
+.mini-row.acct { grid-template-columns: 1.4fr 1fr 0.7fr 0.7fr 1fr; }
+.mini-row.rule { grid-template-columns: 44px 2.2fr 1.3fr 0.5fr 1fr; }
+.mini-row.imp { grid-template-columns: 1.8fr 1fr 0.9fr 0.5fr 0.5fr 0.5fr; }
+.mini-row.rec { grid-template-columns: 1.3fr 1fr 0.7fr 1fr 1fr 0.9fr; }
+.mini-head { display: grid; gap: 12px; padding: 0 12px 5px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.mini-head.acct { grid-template-columns: 1.4fr 1fr 0.7fr 0.7fr 1fr; }
+.mini-head.rule { grid-template-columns: 44px 2.2fr 1.3fr 0.5fr 1fr; }
+.mini-head.imp { grid-template-columns: 1.8fr 1fr 0.9fr 0.5fr 0.5fr 0.5fr; }
+.mini-head.rec { grid-template-columns: 1.3fr 1fr 0.7fr 1fr 1fr 0.9fr; }
+.mini-dim { color: var(--faint); }
+.upload-card { padding: 15px 17px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.upload-card input[type=file] { color: var(--muted); font-size: 12px; }
+.upload-card select, .inline-form input, .inline-form select {
+  border: 1px solid var(--border); background: var(--ground); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; font-size: 12px; color-scheme: dark;
+}
+.inline-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.result-block { font-size: 12px; color: var(--text-2); line-height: 1.6; width: 100%; }
+.balance-input {
+  width: 110px; border: 1px solid var(--border); background: var(--ground);
+  border-radius: 4px; padding: 5px 7px; font-size: 13px; color: var(--text);
+  text-align: right; font-variant-numeric: tabular-nums;
+}

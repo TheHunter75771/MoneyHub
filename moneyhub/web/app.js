@@ -57,6 +57,8 @@ const store = {
   txFilters: { account_id: null, uncategorized: false, q: "", date_from: "", date_to: "" },
   txLimit: 100,
   syncing: false,
+  billPeriod: new Date().toISOString().slice(0, 7),
+  editingBill: null,
 };
 
 const NAV = [
@@ -614,6 +616,403 @@ function renderStub(content, id) {
   $("#page-sub").textContent = "Spec coverage";
 }
 
+/* ---------------------------------------------------------------- bills */
+
+const periodShift = (ym, delta) => {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+async function renderBills(content) {
+  content.append(el("div", "skeleton"));
+  const data = await api(`/api/bills?period=${store.billPeriod}`);
+  content.replaceChildren();
+  const stack = el("div", "stack");
+
+  const bar = el("div", "budget-bar");
+  const nav = el("div", "month-nav");
+  const prev = el("button", "btn-square", "←");
+  prev.addEventListener("click", () => { store.billPeriod = periodShift(store.billPeriod, -1); render(); });
+  const next = el("button", "btn-square", "→");
+  next.addEventListener("click", () => { store.billPeriod = periodShift(store.billPeriod, 1); render(); });
+  nav.append(prev, el("div", "label", monthLabel(store.billPeriod)), next);
+  bar.append(nav);
+  const addBtn = el("button", "btn-accent", "Add bill");
+  addBtn.addEventListener("click", () => openBillDialog(null));
+  bar.append(addBtn);
+  stack.append(bar);
+
+  const totals = el("div", "totals num");
+  const total = (label, value) => {
+    const card = el("div", "card total-card");
+    card.append(el("div", "fig-label", label));
+    card.append(el("div", "fig-value", value));
+    return card;
+  };
+  totals.append(total("Paid this period", money(data.paid_cents)));
+  totals.append(total("Remaining this period", money(data.remaining_cents)));
+  stack.append(totals);
+
+  const table = el("div");
+  const header = el("div", "bill-header");
+  ["", "Bill", "Due", "Check", "Category", "Amount", ""].forEach((h, i) => {
+    const cell = el("div", null, h);
+    if (i === 5) cell.classList.add("cell-right");
+    header.append(cell);
+  });
+  table.append(header);
+
+  for (const b of data.rows) {
+    const row = el("div", "bill-row num" + (b.paid ? " paid" : ""));
+    const check = el("input", "checkbox");
+    check.type = "checkbox";
+    check.checked = b.paid;
+    check.addEventListener("change", async () => {
+      try {
+        await api(`/api/bills/${b.id}/paid`, {
+          method: "POST",
+          body: { period: store.billPeriod, paid: check.checked },
+        });
+        render();
+      } catch (e) { check.checked = !check.checked; }
+    });
+    const checkCell = el("div");
+    checkCell.append(check);
+    row.append(checkCell);
+    row.append(el("div", "bill-name", b.name));
+    row.append(el("div", "bill-due", b.due_rule));
+    row.append(el("div", "bill-check", b.check));
+    row.append(el("div", "bill-cat", b.category || "—"));
+    row.append(el("div", "bill-amt", money(b.amount_cents)));
+    const actions = el("div", "cell-right");
+    const menu = el("span", "row-menu");
+    const edit = el("button", "btn-rule", "edit");
+    edit.addEventListener("click", () => openBillDialog(b));
+    const retire = el("button", "btn-rule", "deactivate");
+    retire.addEventListener("click", async () => {
+      if (confirm(`Deactivate "${b.name}"? It disappears from the checklist.`)) {
+        await api(`/api/bills/${b.id}`, { method: "PATCH", body: { active: false } });
+        render();
+      }
+    });
+    menu.append(edit, retire);
+    actions.append(menu);
+    row.append(actions);
+    table.append(row);
+  }
+  stack.append(table);
+  content.append(stack);
+
+  const paidCount = data.rows.filter((r) => r.paid).length;
+  $("#page-sub").textContent =
+    `${paidCount} of ${data.rows.length} paid · ${money(data.remaining_cents)} remaining`;
+}
+
+/* ---------------------------------------------------------------- debts */
+
+async function renderDebts(content) {
+  content.append(el("div", "skeleton"));
+  const data = await api("/api/debts");
+  content.replaceChildren();
+  const stack = el("div", "stack");
+
+  const bar = el("div", "budget-bar");
+  const totalCard = el("div", "card total-card num");
+  totalCard.style.minWidth = "220px";
+  totalCard.append(el("div", "fig-label", "Total owed"));
+  totalCard.append(el("div", "fig-value", money(data.total_cents)));
+  bar.append(totalCard);
+  const addBtn = el("button", "btn-accent", "Add debt");
+  addBtn.addEventListener("click", () => $("#dlg-debt").showModal());
+  bar.append(addBtn);
+  stack.append(bar);
+
+  const table = el("div");
+  const header = el("div", "debt-header");
+  ["Debt", "Note", "Status", "Balance", ""].forEach((h, i) => {
+    const cell = el("div", null, h);
+    if (i === 3) cell.classList.add("cell-right");
+    header.append(cell);
+  });
+  table.append(header);
+
+  for (const d of data.rows) {
+    const row = el("div", "debt-row num" + (d.status === "paid_off" ? " closed" : ""));
+    row.append(el("div", "debt-name", d.name));
+    const note = el("input", "note-input");
+    note.placeholder = "—";
+    note.value = d.note;
+    note.addEventListener("blur", async () => {
+      if (note.value !== d.note) {
+        await api(`/api/debts/${d.id}`, { method: "PATCH", body: { note: note.value } });
+        d.note = note.value;
+      }
+    });
+    row.append(note);
+    row.append(
+      d.status === "paid_off"
+        ? (() => { const p = el("div"); p.append(el("span", "pill-ok", "paid off")); return p; })()
+        : el("div", "debt-note", "open")
+    );
+    const balCell = el("div", "cell-right");
+    const bal = el("input", "balance-input");
+    bal.type = "number";
+    bal.min = "0";
+    bal.step = "0.01";
+    bal.value = (d.balance_cents / 100).toFixed(2);
+    bal.addEventListener("change", async () => {
+      await api(`/api/debts/${d.id}`, {
+        method: "PATCH",
+        body: { balance_cents: Math.round((Number(bal.value) || 0) * 100) },
+      });
+      render();
+    });
+    balCell.append(bal);
+    row.append(balCell);
+    const actions = el("div", "cell-right");
+    const flip = el("button", "btn-rule", d.status === "paid_off" ? "reopen" : "mark paid off");
+    flip.addEventListener("click", async () => {
+      await api(`/api/debts/${d.id}`, {
+        method: "PATCH",
+        body: { status: d.status === "paid_off" ? "open" : "paid_off" },
+      });
+      render();
+    });
+    actions.append(flip);
+    row.append(actions);
+    table.append(row);
+  }
+  stack.append(table);
+  content.append(stack);
+
+  const open = data.rows.filter((r) => r.status === "open").length;
+  $("#page-sub").textContent = `${open} open · ${money(data.total_cents)} owed`;
+}
+
+/* ----------------------------------------------------------- data & rules */
+
+async function renderData(content) {
+  content.append(el("div", "skeleton"));
+  const [accounts, rules, imports, recon] = await Promise.all([
+    api("/api/accounts"),
+    api("/api/rules"),
+    api("/api/imports"),
+    api("/api/reconcile"),
+  ]);
+  store.accounts = accounts;
+  content.replaceChildren();
+  const stack = el("div", "stack");
+
+  const section = (title, headBtns = []) => {
+    const box = el("div", "data-section");
+    const head = el("div", "data-head");
+    head.append(el("div", "sec-label", title));
+    if (headBtns.length) {
+      const wrap = el("div");
+      wrap.style.display = "flex";
+      wrap.style.gap = "10px";
+      headBtns.forEach((b) => wrap.append(b));
+      head.append(wrap);
+    }
+    box.append(head);
+    return box;
+  };
+
+  // Upload
+  const up = section("Import a file");
+  const card = el("div", "card upload-card");
+  const fileInput = el("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv,.pdf";
+  const acctSel = el("select");
+  acctSel.append(new Option("account (CSV only)…", ""));
+  for (const a of accounts) acctSel.append(new Option(a.name, String(a.id)));
+  const goBtn = el("button", "btn-accent", "Import");
+  const result = el("div", "result-block");
+  goBtn.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+    if (!file) { result.textContent = "pick a file first"; result.className = "err result-block"; return; }
+    const form = new FormData();
+    form.append("file", file);
+    if (acctSel.value) form.append("account_id", acctSel.value);
+    goBtn.disabled = true;
+    goBtn.textContent = "Importing…";
+    try {
+      const res = await fetch("/api/import", { method: "POST", body: form });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || res.statusText);
+      result.className = "result-block";
+      result.replaceChildren();
+      for (const s of body.sections) {
+        result.append(el("div", null,
+          `${s.account} — new: ${s.new}, duplicates: ${s.duplicates}, cross-source: ${s.cross_source}, snapshots: +${s.snapshots}${s.skipped ? " (unmapped, skipped)" : ""}`));
+      }
+      await refreshState();
+    } catch (e) {
+      result.className = "err result-block";
+      result.textContent = e.message;
+    } finally {
+      goBtn.disabled = false;
+      goBtn.textContent = "Import";
+    }
+  });
+  card.append(fileInput, acctSel, goBtn, result);
+  up.append(card);
+  stack.append(up);
+
+  // Accounts
+  const addAcct = el("button", "btn-accent", "Add account");
+  addAcct.addEventListener("click", () => $("#dlg-account").showModal());
+  const acctSec = section("Accounts", [addAcct]);
+  const acctHead = el("div", "mini-head acct");
+  ["Name", "Institution", "Kind", "SimpleFIN", ""].forEach((h) => acctHead.append(el("div", null, h)));
+  acctSec.append(acctHead);
+  for (const a of accounts) {
+    const row = el("div", "mini-row acct");
+    row.append(el("div", null, a.name));
+    row.append(el("div", "mini-dim", a.institution || "—"));
+    row.append(el("div", "mini-dim", a.kind));
+    row.append(el("div", "mini-dim", a.simplefin_mapped ? "mapped ✓" : "—"));
+    const actions = el("div");
+    const rename = el("button", "btn-rule", "rename");
+    rename.addEventListener("click", async () => {
+      const name2 = prompt("Rename account", a.name);
+      if (name2 && name2 !== a.name) {
+        await api(`/api/accounts/${a.id}`, { method: "PATCH", body: { name: name2 } });
+        render();
+      }
+    });
+    const off = el("button", "btn-rule", "deactivate");
+    off.addEventListener("click", async () => {
+      if (confirm(`Deactivate "${a.name}"?`)) {
+        await api(`/api/accounts/${a.id}`, { method: "PATCH", body: { is_active: false } });
+        render();
+      }
+    });
+    const menu = el("span", "row-menu");
+    menu.append(rename, off);
+    actions.append(menu);
+    row.append(actions);
+    acctSec.append(row);
+  }
+  stack.append(acctSec);
+
+  // Rules
+  const runBtn = el("button", "btn-plain", "Run categorize now");
+  runBtn.addEventListener("click", async () => {
+    const stats = await api("/api/categorize", { method: "POST" });
+    runBtn.textContent = `categorized ${stats.categorized}, released ${stats.released}`;
+    await refreshState();
+    setTimeout(() => { runBtn.textContent = "Run categorize now"; }, 2500);
+  });
+  const addRule = el("button", "btn-accent", "Add rule");
+  addRule.addEventListener("click", () => openRuleDialog(""));
+  const ruleSec = section(`Rules · ${rules.length}`, [runBtn, addRule]);
+  const ruleHead = el("div", "mini-head rule");
+  ["Prio", "Conditions", "Category", "Hits", ""].forEach((h) => ruleHead.append(el("div", null, h)));
+  ruleSec.append(ruleHead);
+  for (const r of rules) {
+    const row = el("div", "mini-row rule num");
+    if (!r.active) row.style.opacity = "0.5";
+    row.append(el("div", "mini-dim", String(r.priority)));
+    row.append(el("div", null, r.conditions || "(everything)"));
+    row.append(el("div", "mini-dim", r.category));
+    row.append(el("div", "mini-dim", String(r.hits)));
+    const actions = el("div");
+    const menu = el("span", "row-menu");
+    const toggle = el("button", "btn-rule", r.active ? "disable" : "enable");
+    toggle.addEventListener("click", async () => {
+      await api(`/api/rules/${r.id}`, { method: "PATCH", body: { active: !r.active } });
+      await refreshState();
+      render();
+    });
+    const del = el("button", "btn-rule", "delete");
+    del.addEventListener("click", async () => {
+      if (confirm("Delete this rule? Its rows go back to the inbox.")) {
+        await api(`/api/rules/${r.id}`, { method: "DELETE" });
+        await refreshState();
+        render();
+      }
+    });
+    menu.append(toggle, del);
+    actions.append(menu);
+    row.append(actions);
+    ruleSec.append(row);
+  }
+  stack.append(ruleSec);
+
+  // Reconcile
+  const snapForm = el("div", "inline-form");
+  const snapAcct = el("select");
+  for (const a of accounts) snapAcct.append(new Option(a.name, String(a.id)));
+  const snapAmt = el("input");
+  snapAmt.type = "number";
+  snapAmt.step = "0.01";
+  snapAmt.placeholder = "stated balance";
+  const snapDate = el("input");
+  snapDate.type = "date";
+  snapDate.value = new Date().toISOString().slice(0, 10);
+  const snapBtn = el("button", "btn-plain", "Record stated balance");
+  snapBtn.addEventListener("click", async () => {
+    if (snapAmt.value === "") return;
+    await api("/api/snapshots", {
+      method: "POST",
+      body: {
+        account_id: Number(snapAcct.value),
+        as_of: snapDate.value,
+        balance_cents: Math.round(Number(snapAmt.value) * 100),
+      },
+    });
+    render();
+  });
+  snapForm.append(snapAcct, snapAmt, snapDate, snapBtn);
+  const recSec = section("Reconcile");
+  const recHead = el("div", "mini-head rec");
+  ["Account", "Prior", "Txns", "Computed", "Stated", "Drift"].forEach((h) => recHead.append(el("div", null, h)));
+  recSec.append(recHead);
+  for (const r of recon) {
+    const row = el("div", "mini-row rec num");
+    row.append(el("div", null, r.account));
+    if (r.error) {
+      const msg = el("div", "mini-dim", r.error);
+      msg.style.gridColumn = "2 / -1";
+      row.append(msg);
+    } else {
+      row.append(el("div", "mini-dim", `${money(r.prior_cents)} (${shortDate(r.prior_as_of)})`));
+      row.append(el("div", "mini-dim", String(r.txn_count)));
+      row.append(el("div", "mini-dim", money(r.computed_cents)));
+      row.append(el("div", "mini-dim", `${money(r.stated_cents)} (${shortDate(r.stated_as_of)})`));
+      const drift = el("div", null, r.drift_cents === 0 ? "0.00 ✓" : money(r.drift_cents) + " ✗");
+      if (r.drift_cents !== 0) drift.style.color = "var(--accent-bright)";
+      row.append(drift);
+    }
+    recSec.append(row);
+  }
+  recSec.append(snapForm);
+  stack.append(recSec);
+
+  // Import history
+  const impSec = section("Import history");
+  const impHead = el("div", "mini-head imp");
+  ["File / sync", "Account", "When", "Rows", "New", "Dup"].forEach((h) => impHead.append(el("div", null, h)));
+  impSec.append(impHead);
+  for (const b of imports) {
+    const row = el("div", "mini-row imp num");
+    row.append(el("div", null, b.filename));
+    row.append(el("div", "mini-dim", b.account || "multi"));
+    row.append(el("div", "mini-dim", b.imported_at ? b.imported_at.slice(0, 16).replace("T", " ") : "—"));
+    row.append(el("div", "mini-dim", String(b.rows)));
+    row.append(el("div", "mini-dim", String(b.new)));
+    row.append(el("div", "mini-dim", String(b.duplicates)));
+    impSec.append(row);
+  }
+  stack.append(impSec);
+
+  content.append(stack);
+  $("#page-sub").textContent = `${rules.length} rules · ${accounts.length} accounts`;
+}
+
 /* --------------------------------------------------------------- dialogs */
 
 function fillCategorySelect(select, includeEmpty = false) {
@@ -645,6 +1044,28 @@ function openManualDialog() {
   for (const a of store.accounts) acct.append(new Option(a.name, String(a.id)));
   fillCategorySelect($("#manual-cat"), true);
   dlg.showModal();
+}
+
+function openBillDialog(bill) {
+  store.editingBill = bill;
+  const form = $("#form-bill");
+  form.reset();
+  $("#bill-title").textContent = bill ? "Edit bill" : "Add bill";
+  $("#bill-err").textContent = "";
+  const sel = $("#bill-cat");
+  sel.replaceChildren();
+  sel.append(new Option("—", ""));
+  for (const c of store.categories.filter((c) => c.active)) {
+    sel.append(new Option(c.name, String(c.id)));
+  }
+  if (bill) {
+    form.name.value = bill.name;
+    form.amount.value = (bill.amount_cents / 100).toFixed(2);
+    form.due.value = bill.due_rule;
+    const match = store.categories.find((c) => c.name === bill.category);
+    sel.value = match ? String(match.id) : "";
+  }
+  $("#dlg-bill").showModal();
 }
 
 function openCategoryDialog() {
@@ -695,6 +1116,68 @@ function wireDialogs() {
     } catch (err) { $("#manual-err").textContent = err.message; }
   });
 
+  $("#form-bill").addEventListener("submit", async (e) => {
+    if (e.submitter?.value !== "ok") return;
+    e.preventDefault();
+    const form = e.target;
+    const body = {
+      name: form.name.value,
+      amount_cents: Math.round(Number(form.amount.value) * 100),
+      due_rule: form.due.value,
+      category_id: $("#bill-cat").value ? Number($("#bill-cat").value) : null,
+    };
+    try {
+      if (store.editingBill) {
+        await api(`/api/bills/${store.editingBill.id}`, {
+          method: "PATCH",
+          body: { ...body, set_category: true },
+        });
+      } else {
+        await api("/api/bills", { method: "POST", body });
+      }
+      $("#dlg-bill").close();
+      render();
+    } catch (err) { $("#bill-err").textContent = err.message; }
+  });
+
+  $("#form-debt").addEventListener("submit", async (e) => {
+    if (e.submitter?.value !== "ok") return;
+    e.preventDefault();
+    const form = e.target;
+    try {
+      await api("/api/debts", {
+        method: "POST",
+        body: {
+          name: form.name.value,
+          balance_cents: Math.round(Number(form.balance.value) * 100),
+          note: form.note.value,
+        },
+      });
+      $("#dlg-debt").close();
+      form.reset();
+      render();
+    } catch (err) { $("#debt-err").textContent = err.message; }
+  });
+
+  $("#form-account").addEventListener("submit", async (e) => {
+    if (e.submitter?.value !== "ok") return;
+    e.preventDefault();
+    const form = e.target;
+    try {
+      await api("/api/accounts", {
+        method: "POST",
+        body: {
+          name: form.name.value,
+          institution: form.institution.value,
+          kind: form.kind.value,
+        },
+      });
+      $("#dlg-account").close();
+      form.reset();
+      render();
+    } catch (err) { $("#account-err").textContent = err.message; }
+  });
+
   $("#form-category").addEventListener("submit", async (e) => {
     if (e.submitter?.value !== "ok") return;
     e.preventDefault();
@@ -730,6 +1213,9 @@ async function render() {
     else if (screen === "budget") await renderBudget(content);
     else if (screen === "tx") await renderTx(content);
     else if (screen === "inbox") await renderInbox(content);
+    else if (screen === "bills") await renderBills(content);
+    else if (screen === "debts") await renderDebts(content);
+    else if (screen === "data") await renderData(content);
     else renderStub(content, screen);
   } catch (e) {
     content.replaceChildren(el("div", "err", `Failed to load: ${e.message}`));

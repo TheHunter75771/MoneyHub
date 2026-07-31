@@ -81,6 +81,54 @@
   </form>
 </dialog>
 
+<dialog id="dlg-bill">
+  <form method="dialog" class="dlg-form" id="form-bill">
+    <div class="dlg-title" id="bill-title">Add bill</div>
+    <label>Name <input name="name" required></label>
+    <label>Amount (dollars) <input name="amount" required type="number" min="0" step="0.01"></label>
+    <label>Due rule (e.g. 1st, 15th, biweekly, qtrly 7/20) <input name="due" required></label>
+    <label>Category <select name="category" id="bill-cat"></select></label>
+    <div class="dlg-err" id="bill-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-debt">
+  <form method="dialog" class="dlg-form" id="form-debt">
+    <div class="dlg-title">Add debt</div>
+    <label>Name <input name="name" required></label>
+    <label>Balance (dollars) <input name="balance" required type="number" min="0" step="0.01"></label>
+    <label>Note <input name="note"></label>
+    <div class="dlg-err" id="debt-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Add debt</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-account">
+  <form method="dialog" class="dlg-form" id="form-account">
+    <div class="dlg-title">Add account</div>
+    <label>Name <input name="name" required></label>
+    <label>Institution <input name="institution"></label>
+    <label>Kind
+      <select name="kind">
+        <option>checking</option><option>savings</option><option>envelope</option>
+        <option>credit</option><option>investment</option>
+      </select>
+    </label>
+    <div class="dlg-err" id="account-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Add account</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module" src="/static/app.js"></script>
 </body>
 </html>

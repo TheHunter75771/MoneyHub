@@ -63,8 +63,9 @@ bank exports (CSV/OFX)      manual entry
       by any aggregator and stays on the manual/PDF path.
 - [x] **Phase 3** — FastAPI + the owner-designed "Nocturne" web UI (see
       `docs/UI-SPEC.md` and the design handoff): Dashboard, Budget,
-      Transactions, and Inbox fully wired to live data; Bills, Debts, and
-      Data & Rules render their spec coverage as placeholders. Vanilla ES
+      Transactions, Inbox, Bills (period checklist), Debts, and the
+      Data & Rules admin surface (upload, accounts, rules manager,
+      reconcile, import history) all wired to live data. Vanilla ES
       modules, no build step, served by FastAPI (`moneyhub-web`, port 8710,
       localhost/Tailscale only — the app has no auth by design).
 - [ ] **Phase 4** — transfer linking (card autopay model), payday flow

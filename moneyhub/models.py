@@ -124,6 +124,8 @@ class Bill(Base):
     match_pattern: Mapped[str] = mapped_column(String(200), default="")  # auto-check on import
     active: Mapped[bool] = mapped_column(default=True)
 
+    category: Mapped[Category | None] = relationship()
+
 
 class BillPayment(Base):
     """Paid-state of a bill for one period — the checkbox, now auditable."""
@@ -136,6 +138,8 @@ class BillPayment(Base):
     period: Mapped[str] = mapped_column(String(7))  # 'YYYY-MM'
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"))
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    bill: Mapped[Bill] = relationship()
 
 
 class Debt(Base):

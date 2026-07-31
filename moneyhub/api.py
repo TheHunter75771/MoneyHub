@@ -7,10 +7,12 @@ Tailscale-only rule. Never expose this publicly.
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,13 +20,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import make_engine, make_session_factory
-from .importing import FUZZY_MATCH_WINDOW_DAYS, sync_simplefin
+from .importing import (
+    FUZZY_MATCH_WINDOW_DAYS,
+    ImportError_,
+    import_file,
+    import_statement_file,
+    sync_simplefin,
+)
 from .models import (
+    ACCOUNT_KINDS,
     CATEGORY_GROUPS,
     CATEGORY_SOURCE_MANUAL,
     Account,
     BalanceSnapshot,
+    Bill,
+    BillPayment,
     Category,
+    Debt,
     ImportBatch,
     Rule,
     Transaction,
@@ -34,6 +46,7 @@ from .reconcile import ReconcileError, reconcile
 from .reports import budget_report, inbox
 from .rules import apply_rules, set_category_manual
 from .simplefin import SimpleFinError
+from .statements import StatementParseError
 
 WEB_DIR = Path(__file__).parent / "web"
 STALE_AFTER_DAYS = 2  # synced accounts older than this are flagged
@@ -84,6 +97,76 @@ class InboxAssign(BaseModel):
 class MergeResolve(BaseModel):
     manual_id: int
     action: str  # approve | dismiss
+
+
+class BillIn(BaseModel):
+    name: str
+    amount_cents: int
+    due_rule: str
+    category_id: int | None = None
+
+
+class BillPatch(BaseModel):
+    name: str | None = None
+    amount_cents: int | None = None
+    due_rule: str | None = None
+    category_id: int | None = None
+    set_category: bool = False
+    active: bool | None = None
+
+
+class BillPaidIn(BaseModel):
+    period: str  # YYYY-MM
+    paid: bool
+
+
+class DebtIn(BaseModel):
+    name: str
+    balance_cents: int
+    note: str = ""
+
+
+class DebtPatch(BaseModel):
+    balance_cents: int | None = None
+    note: str | None = None
+    status: str | None = None  # open | paid_off
+
+
+class AccountIn(BaseModel):
+    name: str
+    institution: str = ""
+    kind: str
+
+
+class AccountPatch(BaseModel):
+    name: str | None = None
+    institution: str | None = None
+    is_active: bool | None = None
+    simplefin_id: str | None = None
+    set_simplefin: bool = False
+
+
+class RulePatch(BaseModel):
+    active: bool | None = None
+    priority: int | None = None
+    match_text: str | None = None
+    category_id: int | None = None
+
+
+class SnapshotIn(BaseModel):
+    account_id: int
+    as_of: date
+    balance_cents: int
+
+
+_DAY_RE = re.compile(r"^(\d{1,2})(st|nd|rd|th)")
+
+
+def _check_of(due_rule: str) -> str:
+    m = _DAY_RE.match(due_rule.strip())
+    if not m:
+        return "—"
+    return "1st" if int(m.group(1)) <= 14 else "15th"
 
 
 # --- helpers ----------------------------------------------------------------
@@ -145,6 +228,7 @@ def _account_states(session: Session) -> list[dict]:
                 "as_of": snap.as_of.isoformat() if snap else None,
                 "state": state,
                 "warn": warn,
+                "simplefin_mapped": account.simplefin_id is not None,
             }
         )
     return out
@@ -500,6 +584,356 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             d["category"] = categories.get(t.category_id, "uncategorized")
             out.append(d)
         return out
+
+    # --- bills ---------------------------------------------------------
+
+    @app.get("/api/bills")
+    def bills(period: str, db: Session = Depends(get_db)) -> dict:
+        paid_ids = set(
+            db.scalars(select(BillPayment.bill_id).where(BillPayment.period == period))
+        )
+        categories = {c.id: c.name for c in db.scalars(select(Category))}
+        rows = []
+        paid_total = due_total = 0
+        active_bills = db.scalars(
+            select(Bill).where(Bill.active.is_(True)).order_by(Bill.due_rule, Bill.name)
+        )
+        for b in active_bills:
+            paid = b.id in paid_ids
+            if paid:
+                paid_total += b.amount_cents
+            else:
+                due_total += b.amount_cents
+            rows.append(
+                {
+                    "id": b.id,
+                    "name": b.name,
+                    "amount_cents": b.amount_cents,
+                    "due_rule": b.due_rule,
+                    "category": categories.get(b.category_id),
+                    "check": _check_of(b.due_rule),
+                    "paid": paid,
+                }
+            )
+        rows.sort(key=lambda r: ({"1st": 0, "15th": 1}.get(r["check"], 2), r["name"]))
+        return {
+            "period": period,
+            "rows": rows,
+            "paid_cents": paid_total,
+            "remaining_cents": due_total,
+        }
+
+    @app.post("/api/bills", status_code=201)
+    def add_bill(body: BillIn, db: Session = Depends(get_db)) -> dict:
+        bill = Bill(
+            name=body.name,
+            amount_cents=body.amount_cents,
+            due_rule=body.due_rule,
+            category_id=body.category_id,
+        )
+        db.add(bill)
+        db.commit()
+        return {"id": bill.id}
+
+    @app.patch("/api/bills/{bill_id}")
+    def patch_bill(bill_id: int, body: BillPatch, db: Session = Depends(get_db)) -> dict:
+        bill = db.get(Bill, bill_id)
+        if bill is None:
+            raise HTTPException(404, "no such bill")
+        if body.name is not None:
+            bill.name = body.name
+        if body.amount_cents is not None:
+            bill.amount_cents = body.amount_cents
+        if body.due_rule is not None:
+            bill.due_rule = body.due_rule
+        if body.set_category:
+            bill.category_id = body.category_id
+        if body.active is not None:
+            bill.active = body.active
+        db.commit()
+        return {"ok": True}
+
+    @app.post("/api/bills/{bill_id}/paid")
+    def set_bill_paid(bill_id: int, body: BillPaidIn, db: Session = Depends(get_db)) -> dict:
+        if db.get(Bill, bill_id) is None:
+            raise HTTPException(404, "no such bill")
+        existing = db.scalars(
+            select(BillPayment).where(
+                BillPayment.bill_id == bill_id, BillPayment.period == body.period
+            )
+        ).first()
+        if body.paid and existing is None:
+            db.add(BillPayment(bill_id=bill_id, period=body.period))
+        elif not body.paid and existing is not None:
+            db.delete(existing)
+        db.commit()
+        return {"ok": True}
+
+    # --- debts ---------------------------------------------------------
+
+    @app.get("/api/debts")
+    def debts(db: Session = Depends(get_db)) -> dict:
+        rows = [
+            {
+                "id": d.id,
+                "name": d.name,
+                "balance_cents": d.balance_cents,
+                "note": d.note,
+                "status": d.status,
+            }
+            for d in db.scalars(select(Debt).order_by(Debt.balance_cents.desc()))
+        ]
+        total = sum(r["balance_cents"] for r in rows if r["status"] == "open")
+        return {"rows": rows, "total_cents": total}
+
+    @app.post("/api/debts", status_code=201)
+    def add_debt(body: DebtIn, db: Session = Depends(get_db)) -> dict:
+        if db.scalars(select(Debt).where(Debt.name == body.name)).first():
+            raise HTTPException(409, "debt already exists")
+        debt = Debt(name=body.name, balance_cents=body.balance_cents, note=body.note)
+        db.add(debt)
+        db.commit()
+        return {"id": debt.id}
+
+    @app.patch("/api/debts/{debt_id}")
+    def patch_debt(debt_id: int, body: DebtPatch, db: Session = Depends(get_db)) -> dict:
+        debt = db.get(Debt, debt_id)
+        if debt is None:
+            raise HTTPException(404, "no such debt")
+        if body.balance_cents is not None:
+            debt.balance_cents = body.balance_cents
+        if body.note is not None:
+            debt.note = body.note
+        if body.status is not None:
+            if body.status not in ("open", "paid_off"):
+                raise HTTPException(422, "status must be open or paid_off")
+            debt.status = body.status
+        db.commit()
+        return {"ok": True}
+
+    # --- admin: accounts, imports, rules, reconcile, snapshots ----------
+
+    @app.post("/api/accounts", status_code=201)
+    def add_account(body: AccountIn, db: Session = Depends(get_db)) -> dict:
+        if body.kind not in ACCOUNT_KINDS:
+            raise HTTPException(422, f"kind must be one of {ACCOUNT_KINDS}")
+        if db.scalars(select(Account).where(Account.name == body.name)).first():
+            raise HTTPException(409, "account already exists")
+        account = Account(name=body.name, institution=body.institution, kind=body.kind)
+        db.add(account)
+        db.commit()
+        return {"id": account.id}
+
+    @app.patch("/api/accounts/{account_id}")
+    def patch_account(
+        account_id: int, body: AccountPatch, db: Session = Depends(get_db)
+    ) -> dict:
+        account = db.get(Account, account_id)
+        if account is None:
+            raise HTTPException(404, "no such account")
+        if body.name is not None:
+            account.name = body.name
+        if body.institution is not None:
+            account.institution = body.institution
+        if body.is_active is not None:
+            account.is_active = body.is_active
+        if body.set_simplefin:
+            account.simplefin_id = body.simplefin_id
+        db.commit()
+        return {"ok": True}
+
+    @app.get("/api/imports")
+    def imports(db: Session = Depends(get_db)) -> list[dict]:
+        accounts = {a.id: a.name for a in db.scalars(select(Account))}
+        return [
+            {
+                "id": b.id,
+                "filename": b.filename,
+                "account": accounts.get(b.account_id),
+                "imported_at": b.imported_at.isoformat() if b.imported_at else None,
+                "rows": b.row_count,
+                "new": b.new_count,
+                "duplicates": b.duplicate_count,
+            }
+            for b in db.scalars(
+                select(ImportBatch).order_by(ImportBatch.imported_at.desc()).limit(50)
+            )
+        ]
+
+    @app.get("/api/rules")
+    def rules(db: Session = Depends(get_db)) -> list[dict]:
+        hits = dict(
+            db.execute(
+                select(Transaction.category_source, func.count())
+                .where(Transaction.category_source.like("rule:%"))
+                .group_by(Transaction.category_source)
+            ).all()
+        )
+        categories = {c.id: c.name for c in db.scalars(select(Category))}
+        accounts = {a.id: a.name for a in db.scalars(select(Account))}
+        out = []
+        for r in db.scalars(select(Rule).order_by(Rule.priority, Rule.id)):
+            conds = []
+            if r.match_text:
+                conds.append(f"text ~ {r.match_text!r}")
+            if r.bank_category:
+                conds.append(f"bank = {r.bank_category!r}")
+            if r.account_id:
+                conds.append(f"account = {accounts.get(r.account_id, '?')}")
+            if r.direction:
+                conds.append(r.direction)
+            out.append(
+                {
+                    "id": r.id,
+                    "priority": r.priority,
+                    "conditions": " & ".join(conds),
+                    "category": categories.get(r.category_id, "?"),
+                    "hits": hits.get(f"rule:{r.id}", 0),
+                    "active": r.active,
+                }
+            )
+        return out
+
+    @app.patch("/api/rules/{rule_id}")
+    def patch_rule(rule_id: int, body: RulePatch, db: Session = Depends(get_db)) -> dict:
+        rule = db.get(Rule, rule_id)
+        if rule is None:
+            raise HTTPException(404, "no such rule")
+        if body.active is not None:
+            rule.active = body.active
+        if body.priority is not None:
+            rule.priority = body.priority
+        if body.match_text is not None:
+            rule.match_text = body.match_text
+        if body.category_id is not None:
+            rule.category_id = body.category_id
+        db.commit()
+        stats = apply_rules(db)
+        return {"ok": True, "categorized": stats.categorized}
+
+    @app.delete("/api/rules/{rule_id}")
+    def delete_rule(rule_id: int, db: Session = Depends(get_db)) -> dict:
+        rule = db.get(Rule, rule_id)
+        if rule is None:
+            raise HTTPException(404, "no such rule")
+        db.delete(rule)
+        db.commit()
+        stats = apply_rules(db)
+        return {"ok": True, "released": stats.cleared}
+
+    @app.post("/api/categorize")
+    def categorize_now(db: Session = Depends(get_db)) -> dict:
+        stats = apply_rules(db)
+        return {
+            "examined": stats.examined,
+            "categorized": stats.categorized,
+            "released": stats.cleared,
+        }
+
+    @app.get("/api/reconcile")
+    def reconcile_all(db: Session = Depends(get_db)) -> list[dict]:
+        snaps = _latest_snapshots(db)
+        out = []
+        for account in db.scalars(select(Account).where(Account.is_active.is_(True))):
+            snap = snaps.get(account.id)
+            if snap is None:
+                continue
+            try:
+                report = reconcile(
+                    db, account, stated_cents=snap.balance_cents, stated_as_of=snap.as_of
+                )
+                out.append(
+                    {
+                        "account": account.name,
+                        "prior_as_of": report.prior_as_of.isoformat(),
+                        "prior_cents": report.prior_balance_cents,
+                        "txn_count": report.txn_count,
+                        "txn_sum_cents": report.txn_sum_cents,
+                        "computed_cents": report.computed_cents,
+                        "stated_as_of": report.stated_as_of.isoformat(),
+                        "stated_cents": report.stated_balance_cents,
+                        "drift_cents": report.drift_cents,
+                    }
+                )
+            except ReconcileError as exc:
+                out.append({"account": account.name, "error": str(exc)})
+        return out
+
+    @app.post("/api/snapshots", status_code=201)
+    def add_snapshot(body: SnapshotIn, db: Session = Depends(get_db)) -> dict:
+        if db.get(Account, body.account_id) is None:
+            raise HTTPException(422, "no such account")
+        snap = BalanceSnapshot(
+            account_id=body.account_id,
+            as_of=body.as_of,
+            balance_cents=body.balance_cents,
+            source="manual",
+        )
+        db.add(snap)
+        db.commit()
+        return {"id": snap.id}
+
+    @app.post("/api/import")
+    async def upload_import(
+        file: UploadFile = File(...),
+        account_id: int | None = Form(default=None),
+        db: Session = Depends(get_db),
+    ) -> dict:
+        suffix = Path(file.filename or "upload").suffix.lower()
+        content = await file.read()
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        try:
+            if suffix == ".pdf":
+                import hashlib
+
+                results = import_statement_file(db, tmp_path)
+                batch = db.scalars(
+                    select(ImportBatch).where(
+                        ImportBatch.file_sha256 == hashlib.sha256(content).hexdigest()
+                    )
+                ).first()
+                if batch is not None:
+                    batch.filename = file.filename or batch.filename
+                    db.commit()
+                sections = [
+                    {
+                        "account": r.account_name,
+                        "new": r.new_count,
+                        "duplicates": r.duplicate_count,
+                        "cross_source": r.cross_source_count,
+                        "snapshots": r.snapshots_added,
+                        "skipped": r.skipped_unmapped,
+                    }
+                    for r in results
+                ]
+            else:
+                if account_id is None:
+                    raise HTTPException(422, "CSV imports need an account")
+                account = db.get(Account, account_id)
+                if account is None:
+                    raise HTTPException(422, "no such account")
+                result = import_file(db, tmp_path, account)
+                # The batch records the temp filename; keep the real one.
+                result.batch.filename = file.filename or result.batch.filename
+                db.commit()
+                sections = [
+                    {
+                        "account": account.name,
+                        "new": result.new_count,
+                        "duplicates": result.duplicate_count,
+                        "cross_source": 0,
+                        "snapshots": 1 if result.snapshot else 0,
+                        "merge_candidates": len(result.merge_candidates),
+                    }
+                ]
+            apply_rules(db)
+        except (ImportError_, StatementParseError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return {"sections": sections}
 
     if WEB_DIR.exists():
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
