@@ -35,3 +35,6 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# host-side venv for the systemd timer
+.venv-host/

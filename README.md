@@ -57,6 +57,10 @@ bank exports (CSV/OFX)      manual entry
       from a second institution is available.
 - [x] **Phase 2** — category rules engine (first-match-wins, manual-sticky),
       uncategorized inbox, monthly budget report, manual quick-add
+- [x] **Live sync** — SimpleFIN Bridge connector (`moneyhub sync`) feeding the
+      same dedup pipeline; daily systemd user timer (`deploy/`). Sync is an
+      accelerator — file imports remain the audit trail. Atlas is not covered
+      by any aggregator and stays on the manual/PDF path.
 - [ ] **Phase 3** — FastAPI + web UI (owner-designed) over Tailscale
 - [ ] **Phase 4** — transfer linking (card autopay model), payday flow
 - [ ] **Phase 5** — Notion one-way projection + inbox; optional live bank
@@ -80,6 +84,23 @@ python scripts/seed_from_money_hub.py
 ```
 
 The database and `data/seed.local.json` are gitignored.
+
+### Live sync (optional)
+
+Create an account at [SimpleFIN Bridge](https://bridge.simplefin.org), connect
+your institutions there (bank credentials go to the bridge, never to this
+app), and put the setup token in `.env` as `SIMPLEFIN_SETUP_TOKEN`. The first
+`moneyhub sync` claims the token and stores the access URL back into `.env`.
+
+Automate it with the systemd user units in `deploy/` (note: build
+`.venv-host` with the host's own `python3` if your dev venv uses a different
+toolchain):
+
+```bash
+cp deploy/moneyhub-sync.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now moneyhub-sync.timer
+```
 
 ## Testing philosophy
 

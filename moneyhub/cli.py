@@ -361,7 +361,7 @@ def main(argv: list[str] | None = None) -> None:
     p_add.set_defaults(func=cmd_add)
 
     p_sync = sub.add_parser("sync", help="pull transactions from SimpleFIN Bridge")
-    p_sync.add_argument("--days", type=int, default=45, help="lookback window (default 45)")
+    p_sync.add_argument("--days", type=int, default=30, help="lookback window (default 30)")
     p_sync.add_argument(
         "--map",
         action="append",
