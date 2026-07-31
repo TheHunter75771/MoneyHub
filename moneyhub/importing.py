@@ -23,7 +23,7 @@ import hashlib
 import io
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -203,25 +203,31 @@ def find_merge_candidates(
 
 
 def filter_cross_source_duplicates(
-    session: Session, account: Account, rows: list[ParsedRow]
+    session: Session,
+    account: Account,
+    rows: list[ParsedRow],
+    exclude_fitid_prefix: str | None = None,
 ) -> tuple[list[ParsedRow], int]:
     """Drop rows already present from another source (e.g. CSV vs statement).
 
-    A row without a FITID is considered already-imported when an existing
-    FITID-bearing transaction on the same account has the same amount and a
-    posted date within ±1 day (posting vs effective date skew). Each existing
-    transaction can absorb at most one incoming row.
+    A row is considered already-imported when an existing FITID-bearing
+    transaction on the same account has the same amount and a posted date
+    within ±1 day (posting vs effective date skew). Each existing transaction
+    can absorb at most one incoming row. exclude_fitid_prefix restricts the
+    match pool to rows from OTHER id systems (a source's own re-imports are
+    handled exactly by the FITID layer instead).
     """
     amounts = {r.amount_cents for r in rows}
     if not amounts:
         return rows, 0
-    existing = session.scalars(
-        select(Transaction).where(
-            Transaction.account_id == account.id,
-            Transaction.fitid.is_not(None),
-            Transaction.amount_cents.in_(amounts),
-        )
-    ).all()
+    stmt = select(Transaction).where(
+        Transaction.account_id == account.id,
+        Transaction.fitid.is_not(None),
+        Transaction.amount_cents.in_(amounts),
+    )
+    if exclude_fitid_prefix:
+        stmt = stmt.where(Transaction.fitid.not_like(f"{exclude_fitid_prefix}%"))
+    existing = session.scalars(stmt).all()
     unclaimed: dict[int, list[Transaction]] = {}
     for txn in existing:
         unclaimed.setdefault(txn.amount_cents, []).append(txn)
@@ -411,3 +417,103 @@ def import_statement_file(
     batch.duplicate_count = total_dup
     session.commit()
     return results
+
+
+def sync_simplefin(session: Session, days: int = 45) -> tuple[list[SectionResult], list[dict]]:
+    """Pull from SimpleFIN and run everything through the normal pipeline.
+
+    Returns (results, unmapped) where unmapped lists SimpleFIN accounts that
+    have no Money Hub account assigned yet.
+    """
+    import json
+    from datetime import date as date_
+
+    from .simplefin import (
+        SFIN_FITID_PREFIX,
+        SimpleFinError,
+        auto_map_account,
+        claim_setup_token,
+        fetch_accounts,
+        load_env,
+        persist_access_url,
+        rows_from_account,
+    )
+
+    env = load_env()
+    access_url = env.get("SIMPLEFIN_ACCESS_URL")
+    if not access_url:
+        setup_token = env.get("SIMPLEFIN_SETUP_TOKEN")
+        if not setup_token:
+            raise SimpleFinError(
+                "no SIMPLEFIN_ACCESS_URL or SIMPLEFIN_SETUP_TOKEN in .env — "
+                "sign up at bridge.simplefin.org and put the setup token in .env"
+            )
+        access_url = claim_setup_token(setup_token)
+        persist_access_url(access_url)
+
+    body = fetch_accounts(access_url, days=days)
+    payload = json.loads(body)
+    for error in payload.get("errors") or []:
+        print(f"  bridge warning: {error}")
+
+    body_sha = hashlib.sha256(body).hexdigest()
+    if session.scalars(select(ImportBatch).where(ImportBatch.file_sha256 == body_sha)).first():
+        return [], []  # identical payload already processed — nothing changed
+
+    batch = ImportBatch(
+        filename=f"simplefin sync {date_.today().isoformat()}",
+        file_sha256=body_sha,
+        account_id=None,
+    )
+    session.add(batch)
+    session.flush()
+
+    results: list[SectionResult] = []
+    unmapped: list[dict] = []
+    total_rows = total_new = total_dup = 0
+    for raw in payload.get("accounts", []):
+        account = session.scalars(
+            select(Account).where(Account.simplefin_id == raw["id"])
+        ).first() or auto_map_account(session, raw)
+        if account is None:
+            org = (raw.get("org") or {}).get("name", "?")
+            unmapped.append({"id": raw["id"], "name": raw.get("name", "?"), "org": org})
+            continue
+
+        rows = rows_from_account(raw)
+        total_rows += len(rows)
+        rows, cross_source = filter_cross_source_duplicates(
+            session, account, rows, exclude_fitid_prefix=SFIN_FITID_PREFIX
+        )
+        inserted, duplicates = apply_rows(session, account, rows, batch.id)
+        candidates = find_merge_candidates(session, account, inserted)
+
+        snaps = 0
+        if raw.get("balance") is not None and raw.get("balance-date"):
+            from datetime import datetime
+
+            from .money import to_cents
+
+            as_of = datetime.fromtimestamp(raw["balance-date"], tz=UTC).date()
+            snaps = int(
+                _add_snapshot_if_new(session, account.id, as_of, to_cents(raw["balance"]))
+            )
+        total_new += len(inserted)
+        total_dup += duplicates + cross_source
+        results.append(
+            SectionResult(
+                account_name=account.name,
+                section_name=raw.get("name", ""),
+                new_count=len(inserted),
+                duplicate_count=duplicates,
+                cross_source_count=cross_source,
+                merge_candidates=candidates,
+                snapshots_added=snaps,
+            )
+        )
+
+    batch.row_count = total_rows
+    batch.new_count = total_new
+    batch.duplicate_count = total_dup
+    session.commit()
+    return results, unmapped

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .db import make_engine, make_session_factory
 from .dedup import compute_dedup_hash
-from .importing import ImportError_, import_file, import_statement_file
+from .importing import ImportError_, import_file, import_statement_file, sync_simplefin
 from .models import CATEGORY_SOURCE_MANUAL, Account, Category, Rule, Transaction
 from .money import from_cents, to_cents
 from .reconcile import ReconcileError, reconcile
@@ -268,6 +268,42 @@ def cmd_set_category(args: argparse.Namespace) -> None:
         print(f"#{txn.id} {txn.description_raw!r} -> {category.name} (manual, sticky)")
 
 
+def cmd_sync(args: argparse.Namespace) -> None:
+    from .rules import apply_rules
+    from .simplefin import SimpleFinError
+
+    with _session(args.db) as session:
+        if args.map:
+            for mapping in args.map:
+                sfin_id, _, account_name = mapping.partition("=")
+                account = _account(session, account_name)
+                account.simplefin_id = sfin_id
+                session.commit()
+                print(f"mapped SimpleFIN account ...{sfin_id[-6:]} -> {account.name}")
+        try:
+            results, unmapped = sync_simplefin(session, days=args.days)
+        except SimpleFinError as exc:
+            sys.exit(f"sync failed: {exc}")
+
+        if not results and not unmapped:
+            print("no changes since last sync")
+        for r in results:
+            print(
+                f"  {r.account_name:<24} new: {r.new_count:>3}   dup: {r.duplicate_count:>3}"
+                f"   cross-source dup: {r.cross_source_count:>3}   snapshots: +{r.snapshots_added}"
+            )
+            if r.merge_candidates:
+                _print_candidates(r.merge_candidates)
+        for u in unmapped:
+            print(
+                f"  UNMAPPED: {u['org']} / {u['name']!r} — assign with\n"
+                f"    moneyhub sync --map '{u['id']}={'<Account Name>'}'"
+            )
+        if any(r.new_count for r in results):
+            stats = apply_rules(session)
+            print(f"  rules: {stats.categorized} categorized, inbox grew by uncategorized rest")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="moneyhub", description=__doc__)
     parser.add_argument("--db", default=DEFAULT_DB, help=f"database path (default {DEFAULT_DB})")
@@ -323,6 +359,16 @@ def main(argv: list[str] | None = None) -> None:
     p_add.add_argument("--date", help="YYYY-MM-DD (default today)")
     p_add.add_argument("--category")
     p_add.set_defaults(func=cmd_add)
+
+    p_sync = sub.add_parser("sync", help="pull transactions from SimpleFIN Bridge")
+    p_sync.add_argument("--days", type=int, default=45, help="lookback window (default 45)")
+    p_sync.add_argument(
+        "--map",
+        action="append",
+        metavar="SFIN_ID=ACCOUNT",
+        help="assign a SimpleFIN account id to a Money Hub account (repeatable)",
+    )
+    p_sync.set_defaults(func=cmd_sync)
 
     p_set = sub.add_parser("set-category", help="manually categorize one transaction (sticky)")
     p_set.add_argument("txn_id", type=int)

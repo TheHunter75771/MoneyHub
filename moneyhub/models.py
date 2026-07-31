@@ -40,6 +40,7 @@ class Account(Base):
     institution: Mapped[str] = mapped_column(String(100), default="")
     kind: Mapped[str] = mapped_column(String(20))  # one of ACCOUNT_KINDS
     is_active: Mapped[bool] = mapped_column(default=True)
+    simplefin_id: Mapped[str | None] = mapped_column(String(128))  # live-sync mapping
 
     transactions: Mapped[list[Transaction]] = relationship(back_populates="account")
 
