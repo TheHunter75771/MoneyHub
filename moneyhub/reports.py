@@ -123,6 +123,7 @@ class InboxGroup:
     count: int
     net_cents: int
     sample: str  # one raw description for context
+    txn_ids: list[int] = None  # type: ignore[assignment]
 
 
 def inbox(session: Session, limit: int = 40) -> tuple[list[InboxGroup], int]:
@@ -136,10 +137,15 @@ def inbox(session: Session, limit: int = 40) -> tuple[list[InboxGroup], int]:
         g = groups.get(key)
         if g is None:
             groups[key] = InboxGroup(
-                key=key, count=1, net_cents=t.amount_cents, sample=t.description_raw[:60]
+                key=key,
+                count=1,
+                net_cents=t.amount_cents,
+                sample=t.description_raw[:60],
+                txn_ids=[t.id],
             )
         else:
             g.count += 1
             g.net_cents += t.amount_cents
+            g.txn_ids.append(t.id)
     ordered = sorted(groups.values(), key=lambda g: -abs(g.net_cents))
     return ordered[:limit], len(txns)

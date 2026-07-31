@@ -101,6 +101,8 @@ class Transaction(Base):
     bank_category: Mapped[str] = mapped_column(String(100), default="", server_default="")
     balance_after_cents: Mapped[int | None] = mapped_column()  # running balance from export
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Manual rows a human ruled "not a duplicate" — excluded from merge candidates.
+    merge_dismissed: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
