@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-hosted personal finance hub: CSV/OFX ingestion, dedup, envelope budgeting, reconciliation."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",

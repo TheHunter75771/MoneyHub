@@ -1,0 +1,40 @@
+{
+  "as_of": "2026-01-15",
+  "accounts": [
+    { "name": "Main Checking", "institution": "Example Bank", "kind": "checking", "balance": "1200.00" },
+    { "name": "Bills Envelope", "institution": "Example CU", "kind": "envelope", "balance": "350.50" },
+    { "name": "Spending Envelope", "institution": "Example CU", "kind": "envelope", "balance": "80.25" },
+    { "name": "Emergency Fund", "institution": "Example CU", "kind": "envelope", "balance": "500.00" },
+    { "name": "Vacation Savings", "institution": "Example CU", "kind": "envelope", "balance": null },
+    { "name": "Rewards Card", "institution": "Example Card Co", "kind": "credit", "balance": "-45.10" }
+  ],
+  "categories": [
+    { "name": "Rent", "grp": "need", "monthly_budget": "900" },
+    { "name": "Groceries", "grp": "need", "monthly_budget": "250" },
+    { "name": "Insurance", "grp": "need", "monthly_budget": "110" },
+    { "name": "Dining out", "grp": "want", "monthly_budget": "100" },
+    { "name": "Streaming", "grp": "want", "monthly_budget": "30" },
+    { "name": "Car loan", "grp": "debt", "monthly_budget": "275" },
+    { "name": "Misc buffer", "grp": "want", "monthly_budget": "75" }
+  ],
+  "category_aliases": {
+    "Food": "Groceries",
+    "Fun": "Dining out"
+  },
+  "bills": [
+    { "name": "Rent", "amount": "900", "due": "1st", "category": "Rent" },
+    { "name": "Car insurance", "amount": "110", "due": "15th", "category": "Insurance" },
+    { "name": "Streaming bundle", "amount": "22.99", "due": "8th", "category": "Streaming" },
+    { "name": "Car loan", "amount": "275", "due": "15th", "category": "Car loan" }
+  ],
+  "debts": [
+    { "name": "Car loan", "balance": "6100.00", "note": "" },
+    { "name": "Rewards Card", "balance": "45.10", "note": "autopays from Spending Envelope" },
+    { "name": "Old store card", "balance": "0.00", "note": "paid off", "status": "paid_off" }
+  ],
+  "purchases": [
+    { "name": "SuperMart groceries", "amount": "42.17", "cat": "Food", "date": "2026-01-10", "account": "Spending Envelope" },
+    { "name": "Pizza night", "amount": "18.50", "cat": "Fun", "date": "2026-01-12", "account": "Spending Envelope" },
+    { "name": "Gas station snacks", "amount": "6.75", "cat": "Food", "date": "", "account": "Spending Envelope" }
+  ]
+}
