@@ -61,7 +61,12 @@ bank exports (CSV/OFX)      manual entry
       same dedup pipeline; daily systemd user timer (`deploy/`). Sync is an
       accelerator — file imports remain the audit trail. Atlas is not covered
       by any aggregator and stays on the manual/PDF path.
-- [ ] **Phase 3** — FastAPI + web UI (owner-designed) over Tailscale
+- [x] **Phase 3** — FastAPI + the owner-designed "Nocturne" web UI (see
+      `docs/UI-SPEC.md` and the design handoff): Dashboard, Budget,
+      Transactions, and Inbox fully wired to live data; Bills, Debts, and
+      Data & Rules render their spec coverage as placeholders. Vanilla ES
+      modules, no build step, served by FastAPI (`moneyhub-web`, port 8710,
+      localhost/Tailscale only — the app has no auth by design).
 - [ ] **Phase 4** — transfer linking (card autopay model), payday flow
 - [ ] **Phase 5** — Notion one-way projection + inbox; optional live bank
       connector
@@ -101,6 +106,17 @@ cp deploy/moneyhub-sync.* ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now moneyhub-sync.timer
 ```
+
+### Web UI
+
+```bash
+moneyhub-web            # http://127.0.0.1:8710
+```
+
+Or install `deploy/moneyhub-web.service` the same way as the sync units.
+To reach it from a phone or laptop on your tailnet:
+`tailscale serve --bg localhost:8710`. The app itself has no auth — the
+Tailscale boundary is the boundary. Never expose the port publicly.
 
 ## Testing philosophy
 

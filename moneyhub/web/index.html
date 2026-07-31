@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Money Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">Money Hub</div>
+      <div class="brand-sub">Household ledger</div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="side-foot">
+      <div class="hairline"></div>
+      <div class="sync-at" id="sync-at">Synced —</div>
+      <div class="stale-note" id="stale-note" hidden></div>
+      <button class="btn-accent btn-sync" id="btn-sync">Sync now</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="page-head">
+      <div class="page-title" id="page-title">Dashboard</div>
+      <div class="page-sub" id="page-sub"></div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<dialog id="dlg-rule">
+  <form method="dialog" class="dlg-form" id="form-rule">
+    <div class="dlg-title">New rule</div>
+    <label>Match text <input name="match" required></label>
+    <label>Category <select name="category" id="rule-cat"></select></label>
+    <label>Priority <input name="priority" type="number" value="50"></label>
+    <div class="dlg-err" id="rule-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Create rule</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-manual">
+  <form method="dialog" class="dlg-form" id="form-manual">
+    <div class="dlg-title">Add manual transaction</div>
+    <label>Account <select name="account" id="manual-acct"></select></label>
+    <label>Amount (signed, e.g. -12.34) <input name="amount" required pattern="-?\d+(\.\d{1,2})?"></label>
+    <label>Date <input name="date" type="date" required></label>
+    <label>Description <input name="description" required></label>
+    <label>Category <select name="category" id="manual-cat"></select></label>
+    <div class="dlg-err" id="manual-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-category">
+  <form method="dialog" class="dlg-form" id="form-category">
+    <div class="dlg-title">Add category</div>
+    <label>Name <input name="name" required></label>
+    <label>Group
+      <select name="grp">
+        <option>need</option><option>want</option><option>debt</option><option>savings</option>
+      </select>
+    </label>
+    <label>Monthly cap (dollars, blank for none) <input name="cap" type="number" min="0" step="0.01"></label>
+    <div class="dlg-err" id="category-err"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn-plain" formnovalidate>Cancel</button>
+      <button value="ok" class="btn-accent">Add category</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

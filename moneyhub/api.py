@@ -347,6 +347,8 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
         account_id: int | None = None,
         category_id: int | None = None,
         uncategorized: bool = False,
+        date_from: date | None = None,
+        date_to: date | None = None,
         limit: int = 100,
         offset: int = 0,
         db: Session = Depends(get_db),
@@ -354,6 +356,10 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
         stmt = select(Transaction)
         if account_id is not None:
             stmt = stmt.where(Transaction.account_id == account_id)
+        if date_from is not None:
+            stmt = stmt.where(Transaction.posted_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(Transaction.posted_date <= date_to)
         if uncategorized:
             stmt = stmt.where(Transaction.category_id.is_(None))
         elif category_id is not None:

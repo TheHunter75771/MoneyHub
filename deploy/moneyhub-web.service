@@ -1,0 +1,17 @@
+[Unit]
+Description=Money Hub web UI (Nocturne) + API
+# Requires the drive holding the repo to be mounted.
+ConditionPathExists=/run/media/hunter/AI/Claude/Finances/money-hub
+
+[Service]
+WorkingDirectory=/run/media/hunter/AI/Claude/Finances/money-hub
+# Localhost only. To reach it from other Tailscale devices run once:
+#   tailscale serve --bg localhost:8710
+# Never expose this port publicly; the app has no auth by design.
+Environment=MONEYHUB_WEB_HOST=127.0.0.1
+Environment=MONEYHUB_WEB_PORT=8710
+ExecStart=/run/media/hunter/AI/Claude/Finances/money-hub/.venv-host/bin/moneyhub-web
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
