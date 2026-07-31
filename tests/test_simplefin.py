@@ -162,6 +162,37 @@ def test_sync_dedups_against_bank_fitid_rows(synced):
     assert synced.query(Transaction).count() == 2
 
 
+def test_sync_dedups_against_statement_rows_without_fitid(synced):
+    """Statement rows carry no bank id; sync must still not double-import them."""
+    account = synced.scalars(select(Account)).one()
+    account.simplefin_id = "ACT-123"
+    synced.add(
+        Transaction(
+            account_id=account.id,
+            posted_date=date(2026, 7, 30),
+            amount_cents=-1699,
+            description_raw="POS Withdrawal STEAMGAMES.COM (from statement)",
+            fitid=None,
+            import_id=None,  # replaced below with a real batch id
+            dedup_hash="stmt-h1",
+        )
+    )
+    synced.commit()
+    from moneyhub.models import ImportBatch
+
+    batch = ImportBatch(filename="stmt.pdf", file_sha256="x" * 64, account_id=None)
+    synced.add(batch)
+    synced.flush()
+    txn = synced.scalars(select(Transaction)).one()
+    txn.import_id = batch.id
+    synced.commit()
+
+    (result,), _ = importing.sync_simplefin(synced, days=30)
+    assert result.cross_source_count == 1  # Steam absorbed by the statement row
+    assert result.new_count == 1  # Zaxby's is genuinely new
+    assert synced.query(Transaction).count() == 2
+
+
 def test_sync_without_credentials_errors(session, monkeypatch):
     monkeypatch.setattr("moneyhub.simplefin.load_env", lambda *a, **k: {})
     with pytest.raises(SimpleFinError, match="bridge.simplefin.org"):

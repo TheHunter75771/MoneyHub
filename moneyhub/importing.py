@@ -207,26 +207,41 @@ def filter_cross_source_duplicates(
     account: Account,
     rows: list[ParsedRow],
     exclude_fitid_prefix: str | None = None,
+    include_fitidless: bool = False,
 ) -> tuple[list[ParsedRow], int]:
     """Drop rows already present from another source (e.g. CSV vs statement).
 
-    A row is considered already-imported when an existing FITID-bearing
+    A row is considered already-imported when an existing imported
     transaction on the same account has the same amount and a posted date
     within ±1 day (posting vs effective date skew). Each existing transaction
     can absorb at most one incoming row. exclude_fitid_prefix restricts the
     match pool to rows from OTHER id systems (a source's own re-imports are
-    handled exactly by the FITID layer instead).
+    handled exactly by the FITID layer instead); include_fitidless extends
+    the pool to imported rows without any bank id (statement rows), which
+    matters for sources whose window can overlap statement history.
     """
     amounts = {r.amount_cents for r in rows}
     if not amounts:
         return rows, 0
     stmt = select(Transaction).where(
         Transaction.account_id == account.id,
-        Transaction.fitid.is_not(None),
         Transaction.amount_cents.in_(amounts),
     )
-    if exclude_fitid_prefix:
-        stmt = stmt.where(Transaction.fitid.not_like(f"{exclude_fitid_prefix}%"))
+    if include_fitidless:
+        # Any imported row counts (a bank id implies imported); manual rows
+        # stay with the merge-candidate flow.
+        stmt = stmt.where(
+            (Transaction.import_id.is_not(None)) | (Transaction.fitid.is_not(None))
+        )
+        if exclude_fitid_prefix:
+            stmt = stmt.where(
+                (Transaction.fitid.is_(None))
+                | (Transaction.fitid.not_like(f"{exclude_fitid_prefix}%"))
+            )
+    else:
+        stmt = stmt.where(Transaction.fitid.is_not(None))
+        if exclude_fitid_prefix:
+            stmt = stmt.where(Transaction.fitid.not_like(f"{exclude_fitid_prefix}%"))
     existing = session.scalars(stmt).all()
     unclaimed: dict[int, list[Transaction]] = {}
     for txn in existing:
@@ -483,7 +498,11 @@ def sync_simplefin(session: Session, days: int = 45) -> tuple[list[SectionResult
         rows = rows_from_account(raw)
         total_rows += len(rows)
         rows, cross_source = filter_cross_source_duplicates(
-            session, account, rows, exclude_fitid_prefix=SFIN_FITID_PREFIX
+            session,
+            account,
+            rows,
+            exclude_fitid_prefix=SFIN_FITID_PREFIX,
+            include_fitidless=True,
         )
         inserted, duplicates = apply_rows(session, account, rows, batch.id)
         candidates = find_merge_candidates(session, account, inserted)

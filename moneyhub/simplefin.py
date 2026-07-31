@@ -25,6 +25,8 @@ from .models import Account
 from .money import to_cents
 
 SFIN_FITID_PREFIX = "sfin:"
+# The bridge sits behind bot protection that 403s library-default agents.
+USER_AGENT = "moneyhub/0.1 (+personal finance sync)"
 
 
 class SimpleFinError(RuntimeError):
@@ -56,7 +58,9 @@ def claim_setup_token(setup_token: str) -> str:
         raise SimpleFinError("SIMPLEFIN_SETUP_TOKEN is not valid base64") from exc
     if not claim_url.startswith("https://"):
         raise SimpleFinError("decoded claim URL is not https — refusing")
-    request = urllib.request.Request(claim_url, method="POST", data=b"")
+    request = urllib.request.Request(
+        claim_url, method="POST", data=b"", headers={"User-Agent": USER_AGENT}
+    )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return response.read().decode().strip()
@@ -91,7 +95,9 @@ def fetch_accounts(access_url: str, days: int) -> bytes:
     url = urlunsplit(
         (parts.scheme, host, parts.path.rstrip("/") + "/accounts", f"start-date={start}", "")
     )
-    request = urllib.request.Request(url, headers={"Authorization": f"Basic {credentials}"})
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Basic {credentials}", "User-Agent": USER_AGENT}
+    )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.read()
