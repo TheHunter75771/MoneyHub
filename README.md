@@ -68,9 +68,13 @@ bank exports (CSV/OFX)      manual entry
       reconcile, import history) all wired to live data. Vanilla ES
       modules, no build step, served by FastAPI (`moneyhub-web`, port 8710,
       localhost/Tailscale only — the app has no auth by design).
-- [ ] **Phase 4** — transfer linking (card autopay model), payday flow
-- [ ] **Phase 5** — Notion one-way projection + inbox; optional live bank
-      connector
+- [x] **Phase 4** — transfer-pair linking (176 pairs on live data; unmatched
+      legs surface accounts we can't see into), the Payday screen
+      (per-check bills, deposit math, courtesy-fee early warning), and the
+      one-way Notion projection (dated snapshot pages; needs NOTION_TOKEN).
+      Known deferrals live in `docs/GAPS.md`.
+- [ ] **Phase 5** — Notion inbox (phone-side writes), OFX, Atlas data source,
+      mobile UI pass — see `docs/GAPS.md`
 
 ## Development
 

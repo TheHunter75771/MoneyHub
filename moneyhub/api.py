@@ -935,6 +935,97 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             tmp_path.unlink(missing_ok=True)
         return {"sections": sections}
 
+    # --- phase 4: payday, transfer pairs, notion -------------------------
+
+    @app.get("/api/payday")
+    def payday(period: str, check: str = "1st", db: Session = Depends(get_db)) -> dict:
+        bills_data = bills(period, db)
+        mine = [r for r in bills_data["rows"] if r["check"] == check]
+        other = [r for r in bills_data["rows"] if r["check"] == "—"]
+        unpaid = sum(r["amount_cents"] for r in mine if not r["paid"])
+
+        year, mon = (int(p) for p in period.split("-"))
+        start, end = date(year, mon, 1), (
+            date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+        )
+        income_cat_ids = select(Category.id).where(Category.grp == "income")
+        income = db.scalar(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
+                Transaction.category_id.in_(income_cat_ids),
+                Transaction.posted_date >= start,
+                Transaction.posted_date < end,
+                Transaction.amount_cents > 0,
+            )
+        )
+        fee_window = date.today() - timedelta(days=60)
+        fee_like = "%courtesy pay%"
+        fee_sum, fee_count = db.execute(
+            select(func.coalesce(func.sum(Transaction.amount_cents), 0), func.count()).where(
+                Transaction.description_raw.like(fee_like),
+                Transaction.posted_date >= fee_window,
+            )
+        ).one()
+        return {
+            "period": period,
+            "check": check,
+            "bills": mine,
+            "irregular_bills": other,
+            "unpaid_cents": unpaid,
+            "income_detected_cents": income,
+            "accounts": _account_states(db),
+            "fees_60d_cents": -fee_sum,
+            "fees_60d_count": fee_count,
+        }
+
+    @app.get("/api/transfers")
+    def transfers_view(db: Session = Depends(get_db)) -> dict:
+        from .transfers import _transfer_txns, transfer_groups
+
+        accounts = {a.id: a.name for a in db.scalars(select(Account))}
+        groups = transfer_groups(db)
+        for g in groups:
+            g["from_account"] = accounts.get(g.pop("from_account_id"))
+            g["to_account"] = accounts.get(g.pop("to_account_id"))
+            for leg in g["legs"]:
+                leg["account"] = accounts.get(leg.pop("account_id"))
+        unmatched = [
+            {
+                "id": t.id,
+                "account": accounts.get(t.account_id),
+                "date": t.posted_date.isoformat(),
+                "amount_cents": t.amount_cents,
+                "description": t.description_raw,
+            }
+            for t in _transfer_txns(db, unlinked_only=True)
+        ]
+        return {"groups": groups, "unmatched": unmatched}
+
+    @app.post("/api/transfers/pair")
+    def transfers_pair(db: Session = Depends(get_db)) -> dict:
+        from .transfers import pair_transfers
+
+        result = pair_transfers(db)
+        return {
+            "groups_created": result.groups_created,
+            "legs_linked": result.legs_linked,
+            "unmatched": len(result.unmatched),
+        }
+
+    @app.get("/api/notion/status")
+    def notion_status() -> dict:
+        from .notion import status as notion_status_fn
+
+        return notion_status_fn()
+
+    @app.post("/api/notion/push")
+    def notion_push(db: Session = Depends(get_db)) -> dict:
+        from .notion import NotionError, push_snapshot
+
+        try:
+            return push_snapshot(db)
+        except NotionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     if WEB_DIR.exists():
         app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 

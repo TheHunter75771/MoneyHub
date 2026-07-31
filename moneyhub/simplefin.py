@@ -33,6 +33,9 @@ class SimpleFinError(RuntimeError):
     pass
 
 
+ENV_PREFIXES = ("SIMPLEFIN_", "NOTION_")
+
+
 def load_env(path: str | Path = ".env") -> dict[str, str]:
     """Minimal KEY=VALUE .env reader. Process environment wins on conflict."""
     import os
@@ -46,7 +49,9 @@ def load_env(path: str | Path = ".env") -> dict[str, str]:
                 continue
             key, _, value = line.partition("=")
             values[key.strip()] = value.strip().strip('"').strip("'")
-    values.update({k: v for k, v in os.environ.items() if k.startswith("SIMPLEFIN_")})
+    values.update(
+        {k: v for k, v in os.environ.items() if k.startswith(ENV_PREFIXES)}
+    )
     return values
 
 

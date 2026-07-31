@@ -69,9 +69,9 @@ const NAV = [
   { id: "bills", label: "Bills", title: "Bills" },
   { id: "debts", label: "Debts", title: "Debts" },
   { id: "data", label: "Data & Rules", title: "Data & Rules" },
-  { id: "payday", label: "Payday", title: "Payday flow", later: true },
-  { id: "pairs", label: "Transfer pairs", title: "Transfer pairs", later: true },
-  { id: "notion", label: "Notion", title: "Notion projection", later: true },
+  { id: "payday", label: "Payday", title: "Payday flow" },
+  { id: "pairs", label: "Transfer pairs", title: "Transfer pairs" },
+  { id: "notion", label: "Notion", title: "Notion projection" },
 ];
 
 const STUBS = {
@@ -1013,6 +1013,259 @@ async function renderData(content) {
   $("#page-sub").textContent = `${rules.length} rules · ${accounts.length} accounts`;
 }
 
+/* ---------------------------------------------------------------- payday */
+
+async function renderPayday(content) {
+  content.append(el("div", "skeleton"));
+  const check = store.paydayCheck || "1st";
+  const period = store.billPeriod;
+  const data = await api(`/api/payday?period=${period}&check=${check}`);
+  content.replaceChildren();
+  const stack = el("div", "stack");
+
+  const bar = el("div", "budget-bar");
+  const nav = el("div", "month-nav");
+  const prev = el("button", "btn-square", "←");
+  prev.addEventListener("click", () => { store.billPeriod = periodShift(period, -1); render(); });
+  const next = el("button", "btn-square", "→");
+  next.addEventListener("click", () => { store.billPeriod = periodShift(period, 1); render(); });
+  nav.append(prev, el("div", "label", monthLabel(period)), next);
+  bar.append(nav);
+  const chips = el("div", "filter-bar");
+  for (const c of ["1st", "15th"]) {
+    const chip = el("button", "chip" + (check === c ? " on" : ""), `${c} check`);
+    chip.addEventListener("click", () => { store.paydayCheck = c; render(); });
+    chips.append(chip);
+  }
+  bar.append(chips);
+  stack.append(bar);
+
+  // Courtesy-fee early warning
+  const spending = data.accounts.find((a) => a.name === "SCU Spending");
+  const alerts = [];
+  if (data.fees_60d_count > 0) {
+    alerts.push(
+      `${data.fees_60d_count} courtesy-pay fee(s) — ${money(data.fees_60d_cents)} — in the last 60 days.`
+    );
+  }
+  if (spending && spending.balance_cents !== null && spending.balance_cents < data.unpaid_cents) {
+    alerts.push(
+      `Spending holds ${money(spending.balance_cents)} against ${money(data.unpaid_cents)} of unpaid ${check}-check bills — fund bills first or a fee is coming.`
+    );
+  }
+  if (alerts.length) {
+    const panel = el("div", "card alerts");
+    panel.append(el("div", "alerts-title", "Courtesy-fee watch"));
+    const grid = el("div", "alerts-grid");
+    alerts.forEach((a) => grid.append(el("div", null, a)));
+    panel.append(grid);
+    stack.append(panel);
+  }
+
+  // Deposit vs bills
+  const figures = el("div", "totals num");
+  const depositCard = el("div", "card total-card");
+  depositCard.append(el("div", "fig-label", "This deposit"));
+  const depositInput = el("input", "balance-input");
+  depositInput.type = "number";
+  depositInput.step = "0.01";
+  depositInput.style.width = "130px";
+  depositInput.style.marginTop = "4px";
+  depositInput.value = store.paydayDeposit ?? "960";
+  depositCard.append(depositInput);
+  figures.append(depositCard);
+
+  const total = (label, value, cls = "") => {
+    const card = el("div", "card total-card");
+    card.append(el("div", "fig-label", label));
+    card.append(el("div", `fig-value ${cls}`, value));
+    return card;
+  };
+  figures.append(total(`Unpaid ${check}-check bills`, money(data.unpaid_cents)));
+  const afterCard = total("Left after bills", "");
+  const afterValue = afterCard.querySelector(".fig-value");
+  const recompute = () => {
+    const cents = Math.round((Number(depositInput.value) || 0) * 100);
+    const left = cents - data.unpaid_cents;
+    afterValue.textContent = money(left);
+    afterValue.classList.toggle("uncat", left < 0);
+    store.paydayDeposit = depositInput.value;
+  };
+  depositInput.addEventListener("input", recompute);
+  figures.append(afterCard);
+  figures.append(total("Income seen this month", money(data.income_detected_cents)));
+  recompute();
+  stack.append(figures);
+
+  // Bills for this check (checkable, same behavior as Bills screen)
+  const table = el("div");
+  const header = el("div", "bill-header");
+  ["", "Bill", "Due", "Check", "Category", "Amount", ""].forEach((h, i) => {
+    const cell = el("div", null, h);
+    if (i === 5) cell.classList.add("cell-right");
+    header.append(cell);
+  });
+  table.append(header);
+  for (const b of data.bills.concat(data.irregular_bills)) {
+    const row = el("div", "bill-row num" + (b.paid ? " paid" : ""));
+    const cb = el("input", "checkbox");
+    cb.type = "checkbox";
+    cb.checked = b.paid;
+    cb.addEventListener("change", async () => {
+      await api(`/api/bills/${b.id}/paid`, {
+        method: "POST",
+        body: { period, paid: cb.checked },
+      });
+      render();
+    });
+    const cbCell = el("div");
+    cbCell.append(cb);
+    row.append(cbCell);
+    row.append(el("div", "bill-name", b.name));
+    row.append(el("div", "bill-due", b.due_rule));
+    row.append(el("div", "bill-check", b.check));
+    row.append(el("div", "bill-cat", b.category || "—"));
+    row.append(el("div", "bill-amt", money(b.amount_cents)));
+    row.append(el("div"));
+    table.append(row);
+  }
+  stack.append(table);
+
+  // Envelope balances strip
+  const strip = el("div", "acct-grid");
+  for (const a of data.accounts.filter((a) => a.balance_cents !== null && a.kind === "envelope")) {
+    const card = el("div", "card acct-card");
+    card.append(el("div", "acct-name", a.name));
+    card.append(el("div", "acct-bal num", money(a.balance_cents)));
+    card.append(el("div", "acct-sub", `as of ${shortDate(a.as_of)}`));
+    strip.append(card);
+  }
+  stack.append(el("div", "sec-label", "Envelopes right now"));
+  stack.append(strip);
+
+  content.append(stack);
+  $("#page-sub").textContent =
+    `${check} check · ${money(data.unpaid_cents)} in unpaid bills · Claude directs, Noah moves the money`;
+}
+
+/* ------------------------------------------------------------- transfers */
+
+async function renderPairs(content) {
+  content.append(el("div", "skeleton"));
+  const data = await api("/api/transfers");
+  content.replaceChildren();
+  const stack = el("div", "stack");
+
+  const bar = el("div", "budget-bar");
+  bar.append(el("div", "sec-label", `${data.groups.length} linked pairs · ${data.unmatched.length} unmatched legs`));
+  const pairBtn = el("button", "btn-accent", "Run pairing");
+  pairBtn.addEventListener("click", async () => {
+    pairBtn.disabled = true;
+    pairBtn.textContent = "Pairing…";
+    const res = await api("/api/transfers/pair", { method: "POST" });
+    pairBtn.textContent = `+${res.groups_created} pairs`;
+    setTimeout(render, 700);
+  });
+  bar.append(pairBtn);
+  stack.append(bar);
+
+  const cols = el("div", "inbox-cols");
+  const left = el("div", "inbox-col");
+  left.append(el("div", "sec-label", "Linked pairs"));
+  for (const g of data.groups.slice(0, 40)) {
+    const card = el("div", "card group-card");
+    const head = el("div", "group-head");
+    head.append(el("div", "group-key", `${g.from_account || "?"} → ${g.to_account || "?"}`));
+    head.append(el("div", "group-total num", money(g.amount_cents)));
+    card.append(head);
+    card.append(el("div", "group-count", shortDate(g.date)));
+    for (const leg of g.legs) {
+      card.append(el("div", "group-sample", `${leg.account} · ${signedMoney(leg.amount_cents)} · ${leg.description}`));
+    }
+    left.append(card);
+  }
+  cols.append(left);
+
+  const right = el("div", "inbox-col");
+  right.append(el("div", "sec-label", "Unmatched legs — the other side is invisible"));
+  if (!data.unmatched.length) {
+    const empty = el("div", "card empty-card");
+    empty.append(el("div", "empty-title", "Every transfer has its pair"));
+    empty.append(el("div", "empty-sub", "Both legs of every movement are linked."));
+    right.append(empty);
+  }
+  for (const t of data.unmatched) {
+    const card = el("div", "card merge-card");
+    const lines = el("div", "merge-lines num");
+    lines.textContent = `${t.account} · ${shortDate(t.date)} · ${signedMoney(t.amount_cents)} · ${t.description}`;
+    card.append(lines);
+    right.append(card);
+  }
+  cols.append(right);
+  stack.append(cols);
+  content.append(stack);
+
+  $("#page-sub").textContent = `${data.groups.length} pairs · ${data.unmatched.length} unmatched`;
+}
+
+/* ---------------------------------------------------------------- notion */
+
+async function renderNotion(content) {
+  content.append(el("div", "skeleton"));
+  const status = await api("/api/notion/status");
+  content.replaceChildren();
+  const stack = el("div", "stack");
+  stack.style.maxWidth = "720px";
+
+  const card = el("div", "card month-card");
+  card.append(el("div", "month-label", "One-way projection"));
+  const desc = el("div", "stub-desc");
+  desc.style.marginTop = "8px";
+  desc.textContent =
+    "Money Hub pushes a read-only snapshot (balances, budget, debts) as a dated page in Notion so phone workflows can read it. Notion is never a source of truth.";
+  card.append(desc);
+  stack.append(card);
+
+  const state = el("div", "card month-card");
+  if (!status.configured) {
+    state.append(el("div", "stub-phase", "not configured"));
+    const help = el("div", "stub-desc");
+    help.style.marginTop = "8px";
+    help.textContent =
+      "Create an internal integration at notion.so/my-integrations, share a parent page with it, then put NOTION_TOKEN and NOTION_PARENT_PAGE_ID in money-hub/.env and restart the web service.";
+    state.append(help);
+  } else {
+    state.append(el("div", "sec-label", "Status"));
+    state.append(el("div", "stub-desc",
+      `Last push: ${status.last_push_at ? relTime(status.last_push_at) : "never"} · ${status.last_result || "—"}`));
+    if (status.last_page_url) {
+      const link = el("a", "btn-text", "open last snapshot in Notion");
+      link.href = status.last_page_url;
+      link.target = "_blank";
+      state.append(link);
+    }
+    const pushBtn = el("button", "btn-accent", "Push snapshot now");
+    pushBtn.style.marginTop = "12px";
+    const errLine = el("div", "err");
+    pushBtn.addEventListener("click", async () => {
+      pushBtn.disabled = true;
+      pushBtn.textContent = "Pushing…";
+      try {
+        await api("/api/notion/push", { method: "POST" });
+        render();
+      } catch (e) {
+        errLine.textContent = e.message;
+        pushBtn.disabled = false;
+        pushBtn.textContent = "Push snapshot now";
+      }
+    });
+    state.append(pushBtn, errLine);
+  }
+  stack.append(state);
+  content.append(stack);
+  $("#page-sub").textContent = status.configured ? "configured" : "awaiting credentials";
+}
+
 /* --------------------------------------------------------------- dialogs */
 
 function fillCategorySelect(select, includeEmpty = false) {
@@ -1216,6 +1469,9 @@ async function render() {
     else if (screen === "bills") await renderBills(content);
     else if (screen === "debts") await renderDebts(content);
     else if (screen === "data") await renderData(content);
+    else if (screen === "payday") await renderPayday(content);
+    else if (screen === "pairs") await renderPairs(content);
+    else if (screen === "notion") await renderNotion(content);
     else renderStub(content, screen);
   } catch (e) {
     content.replaceChildren(el("div", "err", `Failed to load: ${e.message}`));
