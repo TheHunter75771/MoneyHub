@@ -68,12 +68,13 @@ ordered roughly by how much money/truth each one protects.
     has a separate mobile design ("Money Hub Mobile.dc.html") not yet
     implemented.
 
-20. **ntfy rides on ntfy.sh with topic-as-secret.** Fine for now (long random
-    topic, modest financial detail), but the digest contains balances —
-    self-hosting ntfy on the Tailscale box removes the exposure entirely.
-    Also: no quiet hours and no dedupe — an unchanged digest still pushes
-    daily. Bill paid-state backfill (see #9) would stop month-tail digests
-    from calling already-paid bills "unpaid".
+20. **ntfy rides on ntfy.sh with topic-as-secret** — and Noah knowingly chose
+    a memorable (guessable) topic name; anyone who guesses it can read the
+    digests (which contain balances) or send fake pushes. Self-hosting ntfy
+    on the Tailscale box would remove the exposure entirely. Also: no quiet
+    hours and no dedupe — an unchanged digest still pushes daily. Bill
+    paid-state backfill (see #9) would stop month-tail digests from calling
+    already-paid bills "unpaid".
 
 ## Housekeeping
 

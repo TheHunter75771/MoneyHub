@@ -73,12 +73,18 @@ def _active_check(today: date) -> str:
     return "1st" if today.day < 15 else "15th"
 
 
-def _unpaid_check_bills(session: Session, today: date) -> tuple[str, int]:
-    """(check label, unpaid cents) for the check window we're currently in."""
+def _next_payday(today: date) -> date:
+    """The next 1st or 15th strictly after today."""
+    if today.day < 15:
+        return date(today.year, today.month, 15)
+    if today.month == 12:
+        return date(today.year + 1, 1, 1)
+    return date(today.year, today.month + 1, 1)
+
+
+def _unpaid_for(session: Session, period: str, check: str) -> int:
     from .api import _check_of  # single source of truth for check assignment
 
-    check = _active_check(today)
-    period = today.strftime("%Y-%m")
     paid_ids = set(
         session.scalars(select(BillPayment.bill_id).where(BillPayment.period == period))
     )
@@ -86,7 +92,13 @@ def _unpaid_check_bills(session: Session, today: date) -> tuple[str, int]:
     for bill in session.scalars(select(Bill).where(Bill.active.is_(True))):
         if _check_of(bill.due_rule) == check and bill.id not in paid_ids:
             unpaid += bill.amount_cents
-    return check, unpaid
+    return unpaid
+
+
+def _unpaid_check_bills(session: Session, today: date) -> tuple[str, int]:
+    """(check label, unpaid cents) for the check window we're currently in."""
+    check = _active_check(today)
+    return check, _unpaid_for(session, today.strftime("%Y-%m"), check)
 
 
 def compose_digest(session: Session, today: date | None = None) -> dict:
@@ -120,8 +132,14 @@ def compose_digest(session: Session, today: date | None = None) -> dict:
             priority = "high"
             tags = "rotating_light"
 
-    if today.day in (1, 15):
-        lines.append(f"Payday day — run /payday. ${from_cents(unpaid)} rides on this check.")
+    next_pd = _next_payday(today)
+    if (next_pd - today).days == 4:
+        pd_check = "1st" if next_pd.day == 1 else "15th"
+        pd_unpaid = _unpaid_for(session, next_pd.strftime("%Y-%m"), pd_check)
+        lines.append(
+            f"Payday in 4 days ({next_pd.strftime('%b %-d')}) — "
+            f"${from_cents(pd_unpaid)} of bills ride on that check. Stage the money now."
+        )
 
     inbox_count = session.scalar(
         select(func.count()).where(Transaction.category_id.is_(None))

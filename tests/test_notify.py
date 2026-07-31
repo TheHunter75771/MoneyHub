@@ -45,10 +45,22 @@ def test_digest_calm_when_covered(world):
     assert "can't cover" not in digest["body"]
 
 
-def test_digest_payday_nudge_on_the_15th(world):
-    digest = compose_digest(world, today=date(2026, 8, 15))
-    assert "run /payday" in digest["body"]
-    assert "15th-check bills unpaid: $210.00" in digest["body"]
+def test_payday_nudge_fires_four_days_before_the_15th(world):
+    digest = compose_digest(world, today=date(2026, 8, 11))
+    assert "Payday in 4 days (Aug 15)" in digest["body"]
+    assert "$210.00 of bills ride on that check" in digest["body"]
+
+
+def test_payday_nudge_four_days_before_the_1st_uses_next_period(world):
+    digest = compose_digest(world, today=date(2026, 8, 28))  # Sep 1 is 4 days out
+    assert "Payday in 4 days (Sep 1)" in digest["body"]
+    assert "$50.00 of bills ride on that check" in digest["body"]
+
+
+def test_no_nudge_on_payday_itself_or_other_days(world):
+    for day in (1, 15, 10, 30):
+        digest = compose_digest(world, today=date(2026, 8, day))
+        assert "Payday in 4 days" not in digest["body"]
 
 
 def test_digest_counts_spending_this_month(world):
