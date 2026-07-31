@@ -92,8 +92,10 @@ class Transaction(Base):
     status: Mapped[str] = mapped_column(String(10), default="posted")  # posted | pending
     transfer_group_id: Mapped[int | None] = mapped_column()
     import_id: Mapped[int | None] = mapped_column(ForeignKey("imports.id"))  # null = manual entry
-    fitid: Mapped[str | None] = mapped_column(String(255))  # bank transaction id (OFX)
+    fitid: Mapped[str | None] = mapped_column(String(255))  # bank's stable transaction id
     dedup_hash: Mapped[str] = mapped_column(String(64))
+    bank_category: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    balance_after_cents: Mapped[int | None] = mapped_column()  # running balance from export
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

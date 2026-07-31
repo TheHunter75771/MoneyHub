@@ -16,6 +16,9 @@ dev = [
     "ruff>=0.4",
 ]
 
+[project.scripts]
+moneyhub = "moneyhub.cli:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

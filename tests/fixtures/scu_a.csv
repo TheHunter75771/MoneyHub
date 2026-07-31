@@ -1,0 +1,6 @@
+"Transaction ID","Posting Date","Effective Date","Transaction Type","Posting Status","Amount","Check Number","Reference Number","Description","Transaction Category","Type","Balance","Memo","Extended Description"
+"20260710 999 1,000 12","7/10/2026","7/10/2026","Credit","Posted","10.00000","","900000005","Transfer from Emergency Fund","Account Transfer In","Deposit","35.00000","","Transfer from Emergency Fund"
+"20260709 999 2,550 11","7/9/2026","7/9/2026","Debit","Posted","-25.50000","","900000004","Waffle Palace","Restaurant","Debit Card","25.00000","","WAFFLE PALACE 42  BEAUFORT  SCUS"
+"20260708 999 500 10","7/8/2026","7/9/2026","Debit","Posted","-5.00000","","900000003","Coffee Hut","Coffee","Debit Card","50.50000","","COFFEE HUT #9  BEAUFORT  SCUS"
+"20260708 999 500 9","7/8/2026","7/8/2026","Debit","Posted","-5.00000","","900000002","Coffee Hut","Coffee","Debit Card","55.50000","","COFFEE HUT #9  BEAUFORT  SCUS"
+"20260707 999 6,050 8","7/7/2026","7/7/2026","Debit","Posted","-60.50000","","900000001","MegaMart","Superstores","Debit Card","60.50000","","MEGAMART #1  BEAUFORT  SCUS"
