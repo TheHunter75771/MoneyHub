@@ -60,7 +60,8 @@ class ImportBatch(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     filename: Mapped[str] = mapped_column(String(255))
     file_sha256: Mapped[str] = mapped_column(String(64), unique=True)
-    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+    # Null for multi-account files (e.g. a member statement covering all shares).
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     row_count: Mapped[int] = mapped_column(default=0)
     new_count: Mapped[int] = mapped_column(default=0)

@@ -10,10 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import make_engine, make_session_factory
-from .importing import ImportError_, import_file
+from .importing import ImportError_, import_file, import_statement_file
 from .models import Account
 from .money import from_cents, to_cents
 from .reconcile import ReconcileError, reconcile
+from .statements import StatementParseError
 
 DEFAULT_DB = "data/moneyhub.db"
 
@@ -39,7 +40,43 @@ def cmd_accounts(args: argparse.Namespace) -> None:
             print(f"  {account.name}  ({account.institution}, {account.kind})")
 
 
+def _print_candidates(candidates) -> None:
+    print(f"\n  NEEDS REVIEW — {len(candidates)} imported row(s) look like")
+    print("  existing manual entries (same amount, within 3 days). Not merged:")
+    for c in candidates:
+        print(
+            f"    imported {c.imported.posted_date} "
+            f"{from_cents(c.imported.amount_cents):>10}  {c.imported.merchant_norm!r}"
+            f"  ~  manual #{c.manual.id} {c.manual.posted_date} "
+            f"{c.manual.description_raw!r}"
+        )
+
+
+def cmd_import_statement(args: argparse.Namespace) -> None:
+    with _session(args.db) as session:
+        try:
+            results = import_statement_file(session, Path(args.file))
+        except (ImportError_, StatementParseError) as exc:
+            sys.exit(f"import refused: {exc}")
+    print(f"imported statement {args.file}")
+    for r in results:
+        if r.skipped_unmapped:
+            print(f"  {r.section_name!r} {r.account_name}: skipped (no account mapping)")
+            continue
+        print(
+            f"  {r.account_name:<24} new: {r.new_count:>3}   dup: {r.duplicate_count:>3}"
+            f"   cross-source dup: {r.cross_source_count:>3}   snapshots: +{r.snapshots_added}"
+        )
+        if r.merge_candidates:
+            _print_candidates(r.merge_candidates)
+
+
 def cmd_import(args: argparse.Namespace) -> None:
+    if args.file.lower().endswith(".pdf"):
+        cmd_import_statement(args)
+        return
+    if not args.account:
+        sys.exit("--account is required for CSV imports")
     with _session(args.db) as session:
         account = _account(session, args.account)
         try:
@@ -57,15 +94,7 @@ def cmd_import(args: argparse.Namespace) -> None:
                 f"as of {result.snapshot.as_of} (from export)"
             )
         if result.merge_candidates:
-            print(f"\n  NEEDS REVIEW — {len(result.merge_candidates)} imported row(s) look like")
-            print("  existing manual entries (same amount, within 3 days). Not merged:")
-            for c in result.merge_candidates:
-                print(
-                    f"    imported {c.imported.posted_date} "
-                    f"{from_cents(c.imported.amount_cents):>10}  {c.imported.merchant_norm!r}"
-                    f"  ~  manual #{c.manual.id} {c.manual.posted_date} "
-                    f"{c.manual.description_raw!r}"
-                )
+            _print_candidates(result.merge_candidates)
 
 
 def cmd_reconcile(args: argparse.Namespace) -> None:
@@ -103,9 +132,11 @@ def main(argv: list[str] | None = None) -> None:
     p_accounts = sub.add_parser("accounts", help="list accounts")
     p_accounts.set_defaults(func=cmd_accounts)
 
-    p_import = sub.add_parser("import", help="import a bank export file")
+    p_import = sub.add_parser(
+        "import", help="import a bank export (CSV needs --account; PDF statements do not)"
+    )
     p_import.add_argument("file")
-    p_import.add_argument("--account", required=True, help="account name (see `accounts`)")
+    p_import.add_argument("--account", help="account name for CSV imports (see `accounts`)")
     p_import.set_defaults(func=cmd_import)
 
     p_rec = sub.add_parser("reconcile", help="check that transactions explain the balance")

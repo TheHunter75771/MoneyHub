@@ -202,6 +202,45 @@ def find_merge_candidates(
     return candidates
 
 
+def filter_cross_source_duplicates(
+    session: Session, account: Account, rows: list[ParsedRow]
+) -> tuple[list[ParsedRow], int]:
+    """Drop rows already present from another source (e.g. CSV vs statement).
+
+    A row without a FITID is considered already-imported when an existing
+    FITID-bearing transaction on the same account has the same amount and a
+    posted date within ±1 day (posting vs effective date skew). Each existing
+    transaction can absorb at most one incoming row.
+    """
+    amounts = {r.amount_cents for r in rows}
+    if not amounts:
+        return rows, 0
+    existing = session.scalars(
+        select(Transaction).where(
+            Transaction.account_id == account.id,
+            Transaction.fitid.is_not(None),
+            Transaction.amount_cents.in_(amounts),
+        )
+    ).all()
+    unclaimed: dict[int, list[Transaction]] = {}
+    for txn in existing:
+        unclaimed.setdefault(txn.amount_cents, []).append(txn)
+
+    kept: list[ParsedRow] = []
+    skipped = 0
+    for row in rows:
+        pool = unclaimed.get(row.amount_cents, [])
+        match = next(
+            (t for t in pool if abs((t.posted_date - row.posted_date).days) <= 1), None
+        )
+        if match is not None:
+            pool.remove(match)
+            skipped += 1
+        else:
+            kept.append(row)
+    return kept, skipped
+
+
 def import_file(session: Session, path: Path, account: Account) -> ImportResult:
     content = path.read_bytes()
     file_sha = hashlib.sha256(content).hexdigest()
@@ -250,3 +289,125 @@ def import_file(session: Session, path: Path, account: Account) -> ImportResult:
         merge_candidates=candidates,
         snapshot=snapshot,
     )
+
+
+@dataclass
+class SectionResult:
+    account_name: str
+    section_name: str
+    new_count: int
+    duplicate_count: int
+    cross_source_count: int
+    merge_candidates: list[MergeCandidate]
+    snapshots_added: int
+    skipped_unmapped: bool = False
+
+
+def _add_snapshot_if_new(
+    session: Session, account_id: int, as_of, balance_cents: int
+) -> bool:
+    exists = session.scalars(
+        select(BalanceSnapshot).where(
+            BalanceSnapshot.account_id == account_id,
+            BalanceSnapshot.as_of == as_of,
+            BalanceSnapshot.source == "import",
+            BalanceSnapshot.balance_cents == balance_cents,
+        )
+    ).first()
+    if exists is not None:
+        return False
+    session.add(
+        BalanceSnapshot(
+            account_id=account_id, as_of=as_of, balance_cents=balance_cents, source="import"
+        )
+    )
+    return True
+
+
+def import_statement_file(
+    session: Session, path: Path, share_map: dict[str, str] | None = None
+) -> list[SectionResult]:
+    """Import a Service CU member statement PDF: every mapped share section."""
+    from .statements import (
+        DEFAULT_SHARE_MAP,
+        extract_pdf_pages,
+        parse_statement_pages,
+        statement_snapshot_dates,
+    )
+
+    share_map = DEFAULT_SHARE_MAP if share_map is None else share_map
+
+    content = path.read_bytes()
+    file_sha = hashlib.sha256(content).hexdigest()
+    already = session.scalars(
+        select(ImportBatch).where(ImportBatch.file_sha256 == file_sha)
+    ).first()
+    if already is not None:
+        raise ImportError_(
+            f"this exact file was already imported on {already.imported_at:%Y-%m-%d} "
+            f"as batch #{already.id} ({already.filename})"
+        )
+
+    statement = parse_statement_pages(extract_pdf_pages(path))
+    batch = ImportBatch(filename=path.name, file_sha256=file_sha, account_id=None)
+    session.add(batch)
+    session.flush()
+
+    results: list[SectionResult] = []
+    total_rows = total_new = total_dup = 0
+    for suffix, section in statement.sections.items():
+        account_name = share_map.get(suffix)
+        if account_name is None:
+            results.append(
+                SectionResult(
+                    account_name=f"(unmapped share ...{suffix})",
+                    section_name=section.name,
+                    new_count=0,
+                    duplicate_count=0,
+                    cross_source_count=0,
+                    merge_candidates=[],
+                    snapshots_added=0,
+                    skipped_unmapped=True,
+                )
+            )
+            continue
+        account = session.scalars(
+            select(Account).where(Account.name == account_name)
+        ).one()
+
+        rows = [
+            ParsedRow(
+                posted_date=r.eff_date,
+                amount_cents=r.amount_cents,
+                description_raw=r.description,
+                balance_after_cents=r.balance_after_cents,
+            )
+            for r in section.rows
+        ]
+        total_rows += len(rows)
+        rows, cross_source = filter_cross_source_duplicates(session, account, rows)
+        inserted, duplicates = apply_rows(session, account, rows, batch.id)
+        candidates = find_merge_candidates(session, account, inserted)
+        snaps = sum(
+            _add_snapshot_if_new(session, account.id, as_of, balance)
+            for as_of, balance in statement_snapshot_dates(section)
+        )
+        total_new += len(inserted)
+        total_dup += duplicates + cross_source
+        results.append(
+            SectionResult(
+                account_name=account_name,
+                section_name=section.name,
+                new_count=len(inserted),
+                duplicate_count=duplicates,
+                cross_source_count=cross_source,
+                merge_candidates=candidates,
+                snapshots_added=snaps,
+            )
+        )
+
+    batch.row_count = total_rows
+    batch.new_count = total_new
+    batch.duplicate_count = total_dup
+    session.commit()
+    return results
