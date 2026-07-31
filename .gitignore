@@ -1,0 +1,37 @@
+# ============================================================================
+# Secrets — never commit. Bank credentials, API keys, and certs live in env
+# vars or gitignored files ONLY. This file is committed before any code.
+# ============================================================================
+.env
+.env.*
+secrets/
+certs/
+*.pem
+*.key
+*.crt
+
+# Personal financial data — real balances, debts, and transactions stay local.
+# The committed example lives in examples/seed.example.json.
+data/
+
+# Databases
+*.db
+*.sqlite3
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
