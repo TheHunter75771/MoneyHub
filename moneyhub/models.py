@@ -178,6 +178,24 @@ class Rule(Base):
     category: Mapped[Category] = relationship()
 
 
+class SyncRun(Base):
+    """Every sync attempt, successful or not.
+
+    Without this a failed pull is invisible after the page reloads and the
+    UI cannot tell "synced recently" from "last SUCCEEDED days ago, and has
+    been failing since".
+    """
+
+    __tablename__ = "sync_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(10))  # ok | failed
+    message: Mapped[str] = mapped_column(Text, default="")
+    new_count: Mapped[int] = mapped_column(default=0)
+
+
 class BalanceSnapshot(Base):
     """A stated balance at a point in time — the reconciliation anchor.
 

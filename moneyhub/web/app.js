@@ -102,11 +102,21 @@ function renderNav() {
     btn.addEventListener("click", () => go(item.id));
     nav.append(btn);
   }
-  $("#sync-at").textContent = store.syncing ? "syncing…" : `Synced ${relTime(store.state?.sync_last_at)}`;
+  $("#sync-at").textContent = store.syncing
+    ? "syncing…"
+    : `Synced ${relTime(store.state?.sync_last_at)}`;
   const stale = $("#stale-note");
   const n = store.state?.stale_accounts || 0;
-  stale.hidden = n === 0;
-  stale.textContent = n === 1 ? "1 account stale" : `${n} accounts stale`;
+  if (store.state?.sync_failing) {
+    // A failing sync outranks staleness: the sidebar must never imply health.
+    stale.hidden = false;
+    stale.textContent =
+      `sync failing since ${relTime(store.state.sync_last_attempt_at)} — ` +
+      (store.state.sync_error || "unknown error").slice(0, 90);
+  } else {
+    stale.hidden = n === 0;
+    stale.textContent = n === 1 ? "1 account stale" : `${n} accounts stale`;
+  }
   const btn = $("#btn-sync");
   btn.textContent = store.syncing ? "Syncing…" : "Sync now";
   btn.disabled = store.syncing;
@@ -802,11 +812,12 @@ async function renderDebts(content) {
 
 async function renderData(content) {
   content.append(el("div", "skeleton"));
-  const [accounts, rules, imports, recon] = await Promise.all([
+  const [accounts, rules, imports, recon, syncs] = await Promise.all([
     api("/api/accounts"),
     api("/api/rules"),
     api("/api/imports"),
     api("/api/reconcile"),
+    api("/api/sync/history"),
   ]);
   store.accounts = accounts;
   content.replaceChildren();
@@ -1000,6 +1011,28 @@ async function renderData(content) {
   recSec.append(snapForm);
   stack.append(recSec);
 
+  // Sync history — successes AND failures, so silence never reads as health
+  const syncSec = section("Sync history");
+  const syncHead = el("div", "mini-head imp");
+  ["Started", "Status", "Detail", "New", "", ""].forEach((h) => syncHead.append(el("div", null, h)));
+  syncSec.append(syncHead);
+  for (const s of syncs.slice(0, 10)) {
+    const row = el("div", "mini-row imp num");
+    row.append(el("div", "mini-dim", s.started_at ? s.started_at.slice(0, 16).replace("T", " ") : "—"));
+    const status = el("div", null, s.status);
+    if (s.status === "failed") status.style.color = "var(--accent-bright)";
+    row.append(status);
+    const detail = el("div", "mini-dim", s.message || "—");
+    detail.style.gridColumn = "3 / 6";
+    row.append(detail);
+    row.append(el("div", "mini-dim", String(s.new_count)));
+    syncSec.append(row);
+  }
+  if (!syncs.length) {
+    syncSec.append(el("div", "mini-row imp", "no sync attempts recorded yet"));
+  }
+  stack.append(syncSec);
+
   // Import history
   const impSec = section("Import history");
   const impHead = el("div", "mini-head imp");
@@ -1072,6 +1105,7 @@ async function renderPayday(content) {
 
   // Deposit vs bills
   const figures = el("div", "totals num");
+  const pc = data.paycheck || {};
   const depositCard = el("div", "card total-card");
   depositCard.append(el("div", "fig-label", "This deposit"));
   const depositInput = el("input", "balance-input");
@@ -1079,8 +1113,31 @@ async function renderPayday(content) {
   depositInput.step = "0.01";
   depositInput.style.width = "130px";
   depositInput.style.marginTop = "4px";
-  depositInput.value = store.paydayDeposit ?? "960";
+  const prefill =
+    store.paydayDeposit ??
+    (pc.detected_cents != null
+      ? (pc.detected_cents / 100).toFixed(2)
+      : pc.typical_cents != null
+        ? (pc.typical_cents / 100).toFixed(2)
+        : "");
+  depositInput.value = prefill;
   depositCard.append(depositInput);
+  if (pc.detected_cents != null) {
+    const hint = el("div", "bill-matched");
+    hint.textContent =
+      `detected ${money(pc.detected_cents)} · ${shortDate(pc.detected_date)}` +
+      ` (${pc.detected_days_ago}d ago)`;
+    depositCard.append(hint);
+  }
+  if (pc.typical_cents != null) {
+    const useTypical = el("button", "btn-rule", `use typical ${money(pc.typical_cents)}`);
+    useTypical.style.marginTop = "4px";
+    useTypical.addEventListener("click", () => {
+      depositInput.value = (pc.typical_cents / 100).toFixed(2);
+      depositInput.dispatchEvent(new Event("input"));
+    });
+    depositCard.append(useTypical);
+  }
   figures.append(depositCard);
 
   const total = (label, value, cls = "") => {

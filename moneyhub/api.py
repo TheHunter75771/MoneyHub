@@ -39,6 +39,7 @@ from .models import (
     Debt,
     ImportBatch,
     Rule,
+    SyncRun,
     Transaction,
 )
 from .money import from_cents
@@ -312,22 +313,55 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
 
     @app.get("/api/state")
     def state(db: Session = Depends(get_db)) -> dict:
-        last_sync = db.scalars(
-            select(ImportBatch)
-            .where(ImportBatch.filename.like("simplefin sync%"))
-            .order_by(ImportBatch.imported_at.desc())
+        last_attempt = db.scalars(
+            select(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
         ).first()
+        last_success = db.scalars(
+            select(SyncRun)
+            .where(SyncRun.status == "ok")
+            .order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
+        ).first()
+        if last_success is None:
+            # Pre-SyncRun history: fall back to the newest sync import batch.
+            legacy = db.scalars(
+                select(ImportBatch)
+                .where(ImportBatch.filename.like("simplefin sync%"))
+                .order_by(ImportBatch.imported_at.desc())
+            ).first()
+            success_at = legacy.imported_at.isoformat() if legacy else None
+        else:
+            success_at = last_success.started_at.isoformat()
         inbox_count = db.scalar(
             select(func.count()).where(Transaction.category_id.is_(None))
         )
         accounts = _account_states(db)
         stale = sum(1 for a in accounts if a["state"].startswith("stale"))
+        failing = last_attempt is not None and last_attempt.status == "failed"
         return {
-            "sync_last_at": last_sync.imported_at.isoformat() if last_sync else None,
+            "sync_last_at": success_at,
+            "sync_last_attempt_at": last_attempt.started_at.isoformat() if last_attempt else None,
+            "sync_failing": failing,
+            "sync_error": last_attempt.message if failing else None,
             "stale_accounts": stale,
             "inbox_count": inbox_count,
             "months": _months(db),
         }
+
+    @app.get("/api/sync/history")
+    def sync_history(db: Session = Depends(get_db)) -> list[dict]:
+        return [
+            {
+                "id": r.id,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "status": r.status,
+                "message": r.message,
+                "new_count": r.new_count,
+            }
+            for r in db.scalars(
+                select(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc()).limit(20)
+            )
+        ]
 
     @app.post("/api/sync")
     def run_sync(db: Session = Depends(get_db)) -> dict:
@@ -998,6 +1032,8 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
                 Transaction.posted_date >= fee_window,
             )
         ).one()
+        from .payday import paycheck_summary
+
         return {
             "period": period,
             "check": check,
@@ -1008,6 +1044,7 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             "accounts": _account_states(db),
             "fees_60d_cents": -fee_sum,
             "fees_60d_count": fee_count,
+            "paycheck": paycheck_summary(db),
         }
 
     @app.get("/api/transfers")

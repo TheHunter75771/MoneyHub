@@ -55,16 +55,20 @@ ordered roughly by how much money/truth each one protects.
     `.env`. Push state lives in `data/notion-state.json`; if the app grows
     more operational state, promote to a settings table. No scheduled push
     yet — manual button only (could hang off the sync timer).
-12. **Sync failures aren't persisted.** A failed SimpleFIN pull shows once in
-    the sidebar and is lost; the state endpoint only knows the last
-    *successful* batch. Record failures (timestamp + reason) so "last tried /
-    last succeeded" are distinct.
+12. ~~Sync failures aren't persisted~~ **DONE 2026-08-01** — every attempt
+    lands in `sync_runs`; /api/state reports last-success vs last-attempt
+    plus the error, the sidebar says "sync failing since …", and Data &
+    Rules lists the last 10 attempts. Network errors are wrapped as
+    SimpleFinError instead of raw tracebacks.
 13. **No app auth** — by design, the Tailscale boundary is the boundary. If
     exposure ever widens (family use), add a bearer token before anything
     else.
-14. **Payday deposit is typed in, not detected.** The screen could pre-fill
-    from the latest TREAS 310 deposit and learn the per-check split
-    (allotment modeling) instead of defaulting to $960.
+14. ~~Payday deposit is typed in~~ **DONE 2026-08-01** — detected from the
+    ledger (TREAS 310 / DFAS / payroll patterns on income rows), showing the
+    latest deposit plus a median "typical" button. Residual: per-check
+    allotment modelling (which bills each check historically funded) is
+    still not learned, and detection ignores deposits landing outside the
+    income category.
 15. **Mobile pass** — the Nocturne handoff is desktop-only (≥1180px); Noah
     has a separate mobile design ("Money Hub Mobile.dc.html") not yet
     implemented.

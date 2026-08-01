@@ -76,6 +76,8 @@ def claim_setup_token(setup_token: str) -> str:
                 "Generate a fresh token at bridge.simplefin.org."
             ) from exc
         raise SimpleFinError(f"claim failed: HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise SimpleFinError(f"claim unreachable: {exc.reason}") from exc
 
 
 def persist_access_url(access_url: str, env_path: str | Path = ".env") -> None:
@@ -108,6 +110,8 @@ def fetch_accounts(access_url: str, days: int) -> bytes:
             return response.read()
     except urllib.error.HTTPError as exc:
         raise SimpleFinError(f"/accounts failed: HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:  # DNS, refused, TLS, timeout
+        raise SimpleFinError(f"/accounts unreachable: {exc.reason}") from exc
 
 
 def rows_from_account(raw: dict) -> list[ParsedRow]:

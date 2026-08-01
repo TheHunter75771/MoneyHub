@@ -445,6 +445,31 @@ def import_statement_file(
 
 
 def sync_simplefin(session: Session, days: int = 45) -> tuple[list[SectionResult], list[dict]]:
+    """Pull from SimpleFIN, recording the attempt whether it works or not."""
+    from .models import SyncRun
+
+    run = SyncRun(status="running")
+    session.add(run)
+    session.commit()
+    try:
+        results, unmapped = _sync_simplefin_inner(session, days)
+    except Exception as exc:  # noqa: BLE001 — recorded, then re-raised
+        run.status = "failed"
+        run.message = f"{type(exc).__name__}: {exc}"[:500]
+        run.finished_at = datetime.now(UTC)
+        session.commit()
+        raise
+    run.status = "ok"
+    run.new_count = sum(r.new_count for r in results)
+    run.message = f"{len(results)} account(s), {len(unmapped)} unmapped"
+    run.finished_at = datetime.now(UTC)
+    session.commit()
+    return results, unmapped
+
+
+def _sync_simplefin_inner(
+    session: Session, days: int = 45
+) -> tuple[list[SectionResult], list[dict]]:
     """Pull from SimpleFIN and run everything through the normal pipeline.
 
     Returns (results, unmapped) where unmapped lists SimpleFIN accounts that
