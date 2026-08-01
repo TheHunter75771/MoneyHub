@@ -39,10 +39,11 @@ ordered roughly by how much money/truth each one protects.
    other side (Apple wallet) is external. Decide: own category ("Apple
    Cash"), or treat as spending. Currently they distort nothing but sit as
    unmatched legs.
-9. **Bill auto-check** (`bills.match_pattern`) is schema-only. Wiring:
-   when an import/sync lands a txn matching an unpaid bill's pattern +
-   amount, create the BillPayment and surface the "matched to txn" hint the
-   design reserved space for.
+9. ~~Bill auto-check~~ **DONE 2026-07-31** — imports/sync auto-check bills
+   whose match_pattern + amount (±25%) fit a non-transfer outflow in the
+   period; the Bills screen shows the matched transaction. Residual: bills
+   with no reliable bank trail (father's three, NFCU CC payoff) stay
+   manual-check; patterns are editable per bill in the edit dialog.
 10. **Inbox has no undo** (the design handoff explicitly wished for one).
     Rule-assign and merge-approve are one-way today (recoverable via
     Data & Rules, but not one click).

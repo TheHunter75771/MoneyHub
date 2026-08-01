@@ -303,6 +303,11 @@ def import_file(session: Session, path: Path, account: Account) -> ImportResult:
         session.add(snapshot)
 
     session.commit()
+
+    if inserted:
+        from .billmatch import auto_check_bills
+
+        auto_check_bills(session)
     return ImportResult(
         batch=batch,
         new_count=len(inserted),
@@ -431,6 +436,11 @@ def import_statement_file(
     batch.new_count = total_new
     batch.duplicate_count = total_dup
     session.commit()
+
+    if total_new:
+        from .billmatch import auto_check_bills
+
+        auto_check_bills(session)
     return results
 
 
@@ -535,4 +545,9 @@ def sync_simplefin(session: Session, days: int = 45) -> tuple[list[SectionResult
     batch.new_count = total_new
     batch.duplicate_count = total_dup
     session.commit()
+
+    if total_new:
+        from .billmatch import auto_check_bills
+
+        auto_check_bills(session)
     return results, unmapped

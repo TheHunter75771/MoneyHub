@@ -680,7 +680,15 @@ async function renderBills(content) {
     const checkCell = el("div");
     checkCell.append(check);
     row.append(checkCell);
-    row.append(el("div", "bill-name", b.name));
+    const nameCell = el("div");
+    nameCell.append(el("div", "bill-name", b.name));
+    if (b.matched) {
+      nameCell.append(
+        el("div", "bill-matched",
+          `✓ matched: ${b.matched.description} · ${shortDate(b.matched.date)}`)
+      );
+    }
+    row.append(nameCell);
     row.append(el("div", "bill-due", b.due_rule));
     row.append(el("div", "bill-check", b.check));
     row.append(el("div", "bill-cat", b.category || "—"));
@@ -1315,6 +1323,7 @@ function openBillDialog(bill) {
     form.name.value = bill.name;
     form.amount.value = (bill.amount_cents / 100).toFixed(2);
     form.due.value = bill.due_rule;
+    form.pattern.value = bill.match_pattern || "";
     const match = store.categories.find((c) => c.name === bill.category);
     sel.value = match ? String(match.id) : "";
   }
@@ -1378,6 +1387,7 @@ function wireDialogs() {
       amount_cents: Math.round(Number(form.amount.value) * 100),
       due_rule: form.due.value,
       category_id: $("#bill-cat").value ? Number($("#bill-cat").value) : null,
+      match_pattern: form.pattern.value,
     };
     try {
       if (store.editingBill) {

@@ -87,6 +87,8 @@
     <label>Name <input name="name" required></label>
     <label>Amount (dollars) <input name="amount" required type="number" min="0" step="0.01"></label>
     <label>Due rule (e.g. 1st, 15th, biweekly, qtrly 7/20) <input name="due" required></label>
+    <label>Auto-check pattern (text found in the bank transaction; blank = manual only)
+      <input name="pattern" placeholder="e.g. nfcu ach loan-recur"></label>
     <label>Category <select name="category" id="bill-cat"></select></label>
     <div class="dlg-err" id="bill-err"></div>
     <div class="dlg-actions">

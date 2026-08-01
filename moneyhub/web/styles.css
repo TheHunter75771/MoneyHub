@@ -368,3 +368,5 @@ dialog::backdrop { background: rgba(15, 17, 25, 0.7); }
   border-radius: 4px; padding: 5px 7px; font-size: 13px; color: var(--text);
   text-align: right; font-variant-numeric: tabular-nums;
 }
+
+.bill-matched { font-size: 11px; color: var(--faint); margin-top: 2px; }

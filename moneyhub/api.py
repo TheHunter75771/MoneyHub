@@ -104,6 +104,7 @@ class BillIn(BaseModel):
     amount_cents: int
     due_rule: str
     category_id: int | None = None
+    match_pattern: str = ""
 
 
 class BillPatch(BaseModel):
@@ -113,6 +114,7 @@ class BillPatch(BaseModel):
     category_id: int | None = None
     set_category: bool = False
     active: bool | None = None
+    match_pattern: str | None = None
 
 
 class BillPaidIn(BaseModel):
@@ -589,9 +591,19 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
 
     @app.get("/api/bills")
     def bills(period: str, db: Session = Depends(get_db)) -> dict:
-        paid_ids = set(
-            db.scalars(select(BillPayment.bill_id).where(BillPayment.period == period))
-        )
+        payments = {
+            p.bill_id: p
+            for p in db.scalars(select(BillPayment).where(BillPayment.period == period))
+        }
+        matched_txn_ids = [
+            p.transaction_id for p in payments.values() if p.transaction_id is not None
+        ]
+        txn_info = {
+            t.id: t
+            for t in db.scalars(
+                select(Transaction).where(Transaction.id.in_(matched_txn_ids))
+            )
+        } if matched_txn_ids else {}
         categories = {c.id: c.name for c in db.scalars(select(Category))}
         rows = []
         paid_total = due_total = 0
@@ -599,11 +611,20 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             select(Bill).where(Bill.active.is_(True)).order_by(Bill.due_rule, Bill.name)
         )
         for b in active_bills:
-            paid = b.id in paid_ids
+            payment = payments.get(b.id)
+            paid = payment is not None
             if paid:
                 paid_total += b.amount_cents
             else:
                 due_total += b.amount_cents
+            matched = None
+            if payment is not None and payment.transaction_id in txn_info:
+                t = txn_info[payment.transaction_id]
+                matched = {
+                    "description": t.merchant_norm or t.description_raw,
+                    "date": t.posted_date.isoformat(),
+                    "amount_cents": t.amount_cents,
+                }
             rows.append(
                 {
                     "id": b.id,
@@ -613,6 +634,8 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
                     "category": categories.get(b.category_id),
                     "check": _check_of(b.due_rule),
                     "paid": paid,
+                    "match_pattern": b.match_pattern,
+                    "matched": matched,
                 }
             )
         rows.sort(key=lambda r: ({"1st": 0, "15th": 1}.get(r["check"], 2), r["name"]))
@@ -630,10 +653,18 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             amount_cents=body.amount_cents,
             due_rule=body.due_rule,
             category_id=body.category_id,
+            match_pattern=body.match_pattern.strip(),
         )
         db.add(bill)
         db.commit()
         return {"id": bill.id}
+
+    @app.post("/api/bills/autocheck")
+    def bills_autocheck(db: Session = Depends(get_db)) -> dict:
+        from .billmatch import auto_check_bills
+
+        created = auto_check_bills(db)
+        return {"checked": created}
 
     @app.patch("/api/bills/{bill_id}")
     def patch_bill(bill_id: int, body: BillPatch, db: Session = Depends(get_db)) -> dict:
@@ -650,6 +681,8 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             bill.category_id = body.category_id
         if body.active is not None:
             bill.active = body.active
+        if body.match_pattern is not None:
+            bill.match_pattern = body.match_pattern.strip()
         db.commit()
         return {"ok": True}
 
