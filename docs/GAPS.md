@@ -91,5 +91,5 @@ ordered roughly by how much money/truth each one protects.
     confirms he no longer opens it.
 18. **budget-tracker/ (Teller v1)** is superseded reference code — decide
     keep-as-portfolio vs archive.
-19. **CI runs on push but the repo has no remote yet** — create the GitHub
-    repo (public, portfolio) and push; verify Actions go green.
+19. ~~No remote~~ **DONE 2026-07-31** — github.com/TheHunter75771/MoneyHub,
+    Actions green. Residual: repo has no About/topics set (Noah's call).
