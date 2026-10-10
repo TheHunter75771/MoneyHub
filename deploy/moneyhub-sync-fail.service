@@ -3,8 +3,11 @@ Description=Money Hub: notify phone when the daily sync fails
 
 [Service]
 Type=oneshot
-WorkingDirectory=/run/media/hunter/AI/Claude/Finances/money-hub
-ExecStart=/run/media/hunter/AI/Claude/Finances/money-hub/.venv-host/bin/moneyhub notify \
+User=moneyhub
+Group=moneyhub
+WorkingDirectory=/opt/moneyhub
+EnvironmentFile=-/opt/moneyhub/.env
+ExecStart=/opt/moneyhub/.venv/bin/moneyhub notify \
   --title "Money Hub sync FAILED" \
-  --message "The daily bank sync did not complete. Check: journalctl --user -u moneyhub-sync" \
+  --message "The daily bank sync did not complete. Check: journalctl -u moneyhub-sync" \
   --priority high

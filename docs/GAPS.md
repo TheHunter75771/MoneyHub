@@ -22,6 +22,13 @@ ordered roughly by how much money/truth each one protects.
    automate a reminder.
 5. **OFX parser** still pending a sample file from a second institution.
 
+5a. **Renaming an account at the bank can freeze it at the aggregator.**
+   Seen live 2026-10-10: the two SCU envelopes renamed on 2026-08-20 came
+   back from SimpleFIN under their old names with a balance dated 08-20 and
+   no transactions since; the other SCU accounts were current. Fix is at
+   the bridge (refresh or re-add the institution, then `sync --map` the new
+   ids). The stale flag is what caught it — keep it.
+
 ## Engine quality
 
 6. **Transfer pairing is greedy amount+date matching.** With repeated equal
@@ -69,6 +76,10 @@ ordered roughly by how much money/truth each one protects.
     allotment modelling (which bills each check historically funded) is
     still not learned, and detection ignores deposits landing outside the
     income category.
+15a. **Snapshots are on-box only.** `moneyhub-backup.timer` keeps 14
+    nightly WAL-safe snapshots in `/var/backups/moneyhub/` on the same disk
+    as the database. A disk failure takes both. Add an off-box pull (rsync
+    over Tailscale from a second machine, or an encrypted bucket).
 15. **Mobile pass** — the Nocturne handoff is desktop-only (≥1180px); Noah
     has a separate mobile design ("Money Hub Mobile.dc.html") not yet
     implemented.

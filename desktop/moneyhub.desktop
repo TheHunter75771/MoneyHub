@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Money Hub
+Comment=Personal finance hub (over Tailscale)
+Exec=moneyhub-desktop
+Icon=x-office-spreadsheet
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=moneyhub
+Keywords=money;budget;finance;

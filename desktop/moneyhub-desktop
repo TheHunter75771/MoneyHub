@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Money Hub as a native desktop window.
+
+A WebKitGTK window pointed at the Money Hub web UI over Tailscale: no
+browser chrome, its own taskbar entry, remembers its size. The URL lives in
+~/.config/moneyhub/app.conf (written by install-desktop.sh) so the launcher
+survives a host move without reinstalling.
+
+    moneyhub-desktop            # opens the configured URL
+    moneyhub-desktop URL        # one-off override
+"""
+from __future__ import annotations
+
+import configparser
+import os
+import sys
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("WebKit2", "4.1")
+from gi.repository import Gtk, WebKit2  # noqa: E402
+
+CONF = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "moneyhub" / "app.conf"
+
+
+def read_conf() -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser()
+    cfg["app"] = {"url": "", "width": "1280", "height": "860"}
+    cfg.read(CONF)
+    return cfg
+
+
+def write_conf(cfg: configparser.ConfigParser) -> None:
+    CONF.parent.mkdir(parents=True, exist_ok=True)
+    with CONF.open("w") as handle:
+        cfg.write(handle)
+
+
+def main() -> int:
+    cfg = read_conf()
+    url = sys.argv[1] if len(sys.argv) > 1 else cfg["app"]["url"]
+    if not url:
+        sys.exit(f"no URL configured — run install-desktop.sh or put one in {CONF}")
+
+    window = Gtk.Window(title="Money Hub")
+    window.set_default_size(cfg["app"].getint("width"), cfg["app"].getint("height"))
+    window.set_wmclass("moneyhub", "Money Hub")
+    window.set_icon_name("x-office-spreadsheet")
+
+    view = WebKit2.WebView()
+    view.load_uri(url)
+    window.add(view)
+
+    def on_destroy(_widget):
+        width, height = window.get_size()
+        cfg["app"]["width"], cfg["app"]["height"] = str(width), str(height)
+        write_conf(cfg)
+        Gtk.main_quit()
+
+    window.connect("destroy", on_destroy)
+    window.show_all()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

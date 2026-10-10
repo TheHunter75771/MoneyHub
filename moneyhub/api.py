@@ -50,7 +50,7 @@ from .simplefin import SimpleFinError
 from .statements import StatementParseError
 
 WEB_DIR = Path(__file__).parent / "web"
-STALE_AFTER_DAYS = 2  # synced accounts older than this are flagged
+STALE_AFTER_DAYS = 7  # synced accounts whose bank balance-date is older than this are flagged
 
 
 # --- request bodies ---------------------------------------------------------
@@ -59,6 +59,7 @@ STALE_AFTER_DAYS = 2  # synced accounts older than this are flagged
 class CategoryPatch(BaseModel):
     cap_cents: int | None = None
     name: str | None = None
+    grp: str | None = None
     active: bool | None = None
 
 
@@ -416,6 +417,10 @@ def create_app(db_path: str | Path = "data/moneyhub.db") -> FastAPI:
             category.monthly_budget_cents = body.cap_cents
         if body.name is not None:
             category.name = body.name
+        if body.grp is not None:
+            if body.grp not in CATEGORY_GROUPS:
+                raise HTTPException(422, f"grp must be one of {CATEGORY_GROUPS}")
+            category.grp = body.grp
         if body.active is not None:
             category.active = body.active
         db.commit()

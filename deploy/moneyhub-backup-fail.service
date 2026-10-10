@@ -1,0 +1,13 @@
+[Unit]
+Description=Money Hub: notify phone when the nightly snapshot fails
+
+[Service]
+Type=oneshot
+User=moneyhub
+Group=moneyhub
+WorkingDirectory=/opt/moneyhub
+EnvironmentFile=-/opt/moneyhub/.env
+ExecStart=/opt/moneyhub/.venv/bin/moneyhub notify \
+  --title "Money Hub backup FAILED" \
+  --message "The nightly database snapshot did not complete. Check: journalctl -u moneyhub-backup" \
+  --priority high

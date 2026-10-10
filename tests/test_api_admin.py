@@ -176,3 +176,22 @@ def test_csv_upload_roundtrip(client):
         )
     assert r.status_code == 422
     assert "already imported" in r.json()["detail"]
+
+
+def test_stale_threshold_tolerates_quiet_savings():
+    """Banks skip the balance-date stamp on inactive accounts for days at a
+    time; a frozen aggregator record is weeks. The threshold must separate
+    the two (seen live: 3-day-old savings vs a 51-day-old frozen envelope)."""
+    from moneyhub.api import STALE_AFTER_DAYS
+
+    assert 3 < STALE_AFTER_DAYS <= 14
+
+
+def test_category_group_can_be_changed(client):
+    created = client.post("/api/categories", json={"name": "Pay", "grp": "need"})
+    assert created.status_code == 201
+    cid = created.json()["id"]
+    assert client.patch(f"/api/categories/{cid}", json={"grp": "bogus"}).status_code == 422
+    assert client.patch(f"/api/categories/{cid}", json={"grp": "income"}).status_code == 200
+    cats = {c["name"]: c["grp"] for c in client.get("/api/categories").json()}
+    assert cats["Pay"] == "income"
