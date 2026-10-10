@@ -2,7 +2,9 @@
 Description=Daily Money Hub sync
 
 [Timer]
-OnCalendar=*-*-* 09:00:00
+# Explicit zone: the host clock may be UTC (the old VPS was), and a bare
+# 09:00 would then fire at 05:00 Eastern.
+OnCalendar=*-*-* 09:00:00 America/New_York
 # If the machine was off at 09:00, run on next boot.
 Persistent=true
 

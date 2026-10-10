@@ -321,6 +321,18 @@ def cmd_notify(args: argparse.Namespace) -> None:
         sys.exit(f"notify failed: {exc}")
 
 
+def cmd_snapshot(args: argparse.Namespace) -> None:
+    from .snapshot import SnapshotError, take_snapshot
+
+    try:
+        target, pruned = take_snapshot(args.db, args.dest, keep=args.keep)
+    except SnapshotError as exc:
+        sys.exit(f"snapshot failed: {exc}")
+    print(f"snapshot written: {target} ({target.stat().st_size:,} bytes)")
+    for old in pruned:
+        print(f"  pruned: {old.name}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="moneyhub", description=__doc__)
     parser.add_argument("--db", default=DEFAULT_DB, help=f"database path (default {DEFAULT_DB})")
@@ -394,6 +406,11 @@ def main(argv: list[str] | None = None) -> None:
         "--priority", default="default", choices=["min", "low", "default", "high", "urgent"]
     )
     p_notify.set_defaults(func=cmd_notify)
+
+    p_snap = sub.add_parser("snapshot", help="WAL-safe backup copy of the database")
+    p_snap.add_argument("--dest", default="backups", help="directory for snapshots")
+    p_snap.add_argument("--keep", type=int, default=14, help="newest snapshots to retain")
+    p_snap.set_defaults(func=cmd_snapshot)
 
     p_set = sub.add_parser("set-category", help="manually categorize one transaction (sticky)")
     p_set.add_argument("txn_id", type=int)

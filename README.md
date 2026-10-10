@@ -67,7 +67,7 @@ bank exports (CSV/OFX)      manual entry
       Data & Rules admin surface (upload, accounts, rules manager,
       reconcile, import history) all wired to live data. Vanilla ES
       modules, no build step, served by FastAPI (`moneyhub-web`, port 8710,
-      localhost/Tailscale only — the app has no auth by design).
+      Tailscale only — the app has no auth by design).
 - [x] **Phase 4** — transfer-pair linking (176 pairs on live data; unmatched
       legs surface accounts we can't see into), the Payday screen
       (per-check bills, deposit math, courtesy-fee early warning), and the
@@ -95,22 +95,24 @@ python scripts/seed_from_money_hub.py
 
 The database and `data/seed.local.json` are gitignored.
 
+### Deploying for real
+
+`deploy/install.sh` puts the app on an always-on Linux box as a system
+service bound to the host's Tailscale IP, with a daily sync timer and a
+nightly WAL-safe snapshot. One command, idempotent, re-run to upgrade:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TheHunter75771/MoneyHub/main/deploy/install.sh | sudo bash
+```
+
+Full runbook, secrets handling, and restore steps: `docs/DEPLOY.md`.
+
 ### Live sync (optional)
 
 Create an account at [SimpleFIN Bridge](https://bridge.simplefin.org), connect
 your institutions there (bank credentials go to the bridge, never to this
 app), and put the setup token in `.env` as `SIMPLEFIN_SETUP_TOKEN`. The first
 `moneyhub sync` claims the token and stores the access URL back into `.env`.
-
-Automate it with the systemd user units in `deploy/` (note: build
-`.venv-host` with the host's own `python3` if your dev venv uses a different
-toolchain):
-
-```bash
-cp deploy/moneyhub-sync.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now moneyhub-sync.timer
-```
 
 ### Phone notifications (optional)
 
@@ -126,10 +128,18 @@ fires a high-priority alert if the sync itself fails.
 moneyhub-web            # http://127.0.0.1:8710
 ```
 
-Or install `deploy/moneyhub-web.service` the same way as the sync units.
-To reach it from a phone or laptop on your tailnet:
-`tailscale serve --bg localhost:8710`. The app itself has no auth — the
-Tailscale boundary is the boundary. Never expose the port publicly.
+The app itself has no auth — the Tailscale boundary is the boundary. Never
+expose the port publicly. `deploy/install.sh` binds it to the Tailscale IP.
+
+### Backups
+
+```bash
+moneyhub snapshot --dest backups --keep 14
+```
+
+The DB is WAL mode: a plain file copy silently drops uncommitted-to-main-file
+pages. `snapshot` uses SQLite's online backup API and integrity-checks the
+result. The deploy's nightly timer runs exactly this.
 
 ## Testing philosophy
 
