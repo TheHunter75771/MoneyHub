@@ -50,7 +50,7 @@ from .simplefin import SimpleFinError
 from .statements import StatementParseError
 
 WEB_DIR = Path(__file__).parent / "web"
-STALE_AFTER_DAYS = 2  # synced accounts older than this are flagged
+STALE_AFTER_DAYS = 7  # synced accounts whose bank balance-date is older than this are flagged
 
 
 # --- request bodies ---------------------------------------------------------

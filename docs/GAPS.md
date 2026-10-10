@@ -22,6 +22,13 @@ ordered roughly by how much money/truth each one protects.
    automate a reminder.
 5. **OFX parser** still pending a sample file from a second institution.
 
+5a. **Renaming an account at the bank can freeze it at the aggregator.**
+   Seen live 2026-10-10: the two SCU envelopes renamed on 2026-08-20 came
+   back from SimpleFIN under their old names with a balance dated 08-20 and
+   no transactions since; the other SCU accounts were current. Fix is at
+   the bridge (refresh or re-add the institution, then `sync --map` the new
+   ids). The stale flag is what caught it — keep it.
+
 ## Engine quality
 
 6. **Transfer pairing is greedy amount+date matching.** With repeated equal
