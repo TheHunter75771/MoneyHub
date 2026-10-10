@@ -12,6 +12,7 @@ printed, or stored in the database.
 from __future__ import annotations
 
 import base64
+import re
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -80,10 +81,20 @@ def claim_setup_token(setup_token: str) -> str:
         raise SimpleFinError(f"claim unreachable: {exc.reason}") from exc
 
 
+_ACCESS_URL_LINE = re.compile(r"^\s*SIMPLEFIN_ACCESS_URL\s*=\s*\S", re.MULTILINE)
+
+
 def persist_access_url(access_url: str, env_path: str | Path = ".env") -> None:
+    """Append the claimed access URL to .env unless a real value is already set.
+
+    Only an actual ``SIMPLEFIN_ACCESS_URL=<value>`` line counts: a comment
+    that merely mentions the key, or an empty ``SIMPLEFIN_ACCESS_URL=``,
+    must not suppress the write — a setup token is single-use, so a skipped
+    save here silently burns it.
+    """
     path = Path(env_path)
     existing = path.read_text() if path.exists() else ""
-    if "SIMPLEFIN_ACCESS_URL" in existing:
+    if _ACCESS_URL_LINE.search(existing):
         return
     with path.open("a") as handle:
         handle.write(f"\nSIMPLEFIN_ACCESS_URL={access_url}\n")

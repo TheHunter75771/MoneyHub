@@ -197,3 +197,30 @@ def test_sync_without_credentials_errors(session, monkeypatch):
     monkeypatch.setattr("moneyhub.simplefin.load_env", lambda *a, **k: {})
     with pytest.raises(SimpleFinError, match="bridge.simplefin.org"):
         importing.sync_simplefin(session, days=30)
+
+
+def test_persist_access_url_ignores_comment_mentions(tmp_path):
+    from moneyhub.simplefin import persist_access_url
+
+    env = tmp_path / ".env"
+    env.write_text("# the sync appends SIMPLEFIN_ACCESS_URL here\nSIMPLEFIN_SETUP_TOKEN=abc\n")
+    persist_access_url("https://u:p@host/simplefin", env)
+    assert "SIMPLEFIN_ACCESS_URL=https://u:p@host/simplefin" in env.read_text()
+
+
+def test_persist_access_url_fills_empty_value(tmp_path):
+    from moneyhub.simplefin import persist_access_url
+
+    env = tmp_path / ".env"
+    env.write_text("SIMPLEFIN_ACCESS_URL=\n")
+    persist_access_url("https://u:p@host/simplefin", env)
+    assert env.read_text().count("SIMPLEFIN_ACCESS_URL=https://u:p@host/simplefin") == 1
+
+
+def test_persist_access_url_keeps_existing_value(tmp_path):
+    from moneyhub.simplefin import persist_access_url
+
+    env = tmp_path / ".env"
+    env.write_text("SIMPLEFIN_ACCESS_URL=https://old\n")
+    persist_access_url("https://new", env)
+    assert env.read_text() == "SIMPLEFIN_ACCESS_URL=https://old\n"
