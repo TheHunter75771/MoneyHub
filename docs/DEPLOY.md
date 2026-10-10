@@ -34,6 +34,21 @@ A fresh database has no accounts. Create them in **Data & Rules → Accounts**
 in the UI (or `POST /api/accounts`), then either upload bank CSV/PDF exports
 there or set up live sync below.
 
+## Desktop app (optional)
+
+`desktop/install-desktop.sh` installs a native window (WebKitGTK, no
+browser chrome) and an app-menu entry for the current user. It needs the
+GTK3 + WebKit2GTK 4.1 bindings (`python3-gobject webkit2gtk4.1` on Fedora,
+`python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1` on Ubuntu):
+
+```bash
+git clone https://github.com/TheHunter75771/MoneyHub.git ~/src/MoneyHub
+~/src/MoneyHub/desktop/install-desktop.sh http://<tailscale-ip>:8710
+```
+
+The URL lives in `~/.config/moneyhub/app.conf`; re-run the installer with a
+new URL if the host moves.
+
 ## Secrets
 
 `sudoedit /opt/moneyhub/.env`, then `sudo systemctl restart moneyhub-web`.
